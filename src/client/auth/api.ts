@@ -26,7 +26,13 @@ export async function submitAuth(
   } catch {
     throw new Error("Connection unavailable. Please try again.");
   }
-  const parsed = responseSchema.safeParse(await response.json());
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("Service unavailable. Please try again.");
+  }
+  const parsed = responseSchema.safeParse(body);
   if (!parsed.success)
     throw new Error("Service unavailable. Please try again.");
   if ("error" in parsed.data) throw new Error(parsed.data.error);

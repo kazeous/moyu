@@ -1,4 +1,7 @@
 .git
+.superpowers
+docs
+*.tsbuildinfo
 .next
 node_modules
 playwright-report

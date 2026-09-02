@@ -8,6 +8,7 @@ import {
 import { getDatabaseClient } from "../client";
 import { customPhrases, phraseGlosses, phraseTags, workTags } from "../schema";
 import type { WorkTag } from "./work-tags";
+import { lockOwnerMetadata, type DatabaseTransaction } from "./owner-lock";
 
 type PhraseGloss = Pick<typeof phraseGlosses.$inferSelect, "language" | "text">;
 
@@ -15,10 +16,6 @@ export type CustomPhrase = typeof customPhrases.$inferSelect & {
   glosses: PhraseGloss[];
   workTags: WorkTag[];
 };
-
-type DatabaseTransaction = Parameters<
-  Parameters<ReturnType<typeof getDatabaseClient>["transaction"]>[0]
->[0];
 
 async function findOwnerWorkTags(
   transaction: DatabaseTransaction,
@@ -165,6 +162,7 @@ export async function createPhrase(
   const database = getDatabaseClient();
 
   return database.transaction(async (transaction) => {
+    await lockOwnerMetadata(transaction, ownerId);
     const tags = await findOwnerWorkTags(transaction, ownerId, uniqueTagIds);
 
     const [phrase] = await transaction
@@ -204,6 +202,7 @@ export async function updatePhrase(
   const database = getDatabaseClient();
 
   return database.transaction(async (transaction) => {
+    await lockOwnerMetadata(transaction, ownerId);
     const [existingPhrase] = await transaction
       .select({ id: customPhrases.id })
       .from(customPhrases)

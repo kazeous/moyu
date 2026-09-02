@@ -1,3 +1,5 @@
+import { MetadataConflictError } from "@/server/metadata-conflict";
+
 export class HttpError extends Error {
   constructor(
     public readonly status: number,
@@ -24,9 +26,14 @@ export async function handleRequest(
   try {
     return await operation();
   } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    const message =
+    const status =
       error instanceof HttpError
+        ? error.status
+        : error instanceof MetadataConflictError
+          ? 409
+          : 503;
+    const message =
+      error instanceof HttpError || error instanceof MetadataConflictError
         ? error.message
         : "Service unavailable. Try again later.";
     const response = jsonResponse({ error: message }, status);
