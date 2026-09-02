@@ -10,8 +10,18 @@ const validPhraseInput = {
   sourcePhrase: "第一架",
   language: "zh" as const,
   glosses: [{ language: "en" as const, text: "first unit" }],
-  workTagIds: [],
+  workTagIds: ["11111111-1111-4111-8111-111111111111"],
 };
+
+it("requires at least one work tag on an otherwise valid phrase", () => {
+  expect(createPhraseInputSchema.safeParse(validPhraseInput).success).toBe(
+    true,
+  );
+  expect(
+    createPhraseInputSchema.safeParse({ ...validPhraseInput, workTagIds: [] })
+      .success,
+  ).toBe(false);
+});
 
 it.each([
   ["dialogue", { dialogue: "這是第一架機體" }],
@@ -37,10 +47,8 @@ it("accepts permitted phrase metadata", () => {
 it("rejects unknown fields nested in phrase glosses", () => {
   expect(() =>
     createPhraseInputSchema.parse({
-      sourcePhrase: "第一架",
-      language: "zh",
+      ...validPhraseInput,
       glosses: [{ language: "en", text: "first unit", ocrText: "第一架" }],
-      workTagIds: [],
     }),
   ).toThrow();
 });
@@ -48,13 +56,11 @@ it("rejects unknown fields nested in phrase glosses", () => {
 it("rejects duplicate gloss languages", () => {
   expect(() =>
     createPhraseInputSchema.parse({
-      sourcePhrase: "第一架",
-      language: "zh",
+      ...validPhraseInput,
       glosses: [
         { language: "en", text: "first unit" },
         { language: "en", text: "first machine" },
       ],
-      workTagIds: [],
     }),
   ).toThrow();
 });

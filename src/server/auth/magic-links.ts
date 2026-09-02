@@ -1,5 +1,5 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
-import { z } from "zod";
+import { emailSchema } from "./contracts";
 
 import { getDatabaseClient } from "@/server/db/client";
 import type { User } from "@/server/db/repositories/users";
@@ -8,7 +8,6 @@ import { magicLinkTokens, users } from "@/server/db/schema";
 import { generateToken, hashToken, isValidToken } from "./tokens";
 
 export const MAGIC_LINK_LIFETIME_MS = 15 * 60 * 1000;
-const emailSchema = z.string().trim().toLowerCase().pipe(z.email().max(254));
 
 /** Internal mail-delivery material. Never serialize this result into an HTTP response. */
 export async function issueMagicLink(

@@ -60,6 +60,10 @@ describe("private metadata repositories", () => {
     fixtureUserIds.push(owner.id, otherOwner.id);
 
     const tag = await createWorkTag(owner.id, { name: "mecha", aliases: [] });
+    const otherTag = await createWorkTag(otherOwner.id, {
+      name: "other work",
+      aliases: [],
+    });
     const phrase = await createPhrase(owner.id, {
       sourcePhrase: "第一架",
       language: "zh",
@@ -80,7 +84,7 @@ describe("private metadata repositories", () => {
         sourcePhrase: "第二架",
         language: "zh",
         glosses: [{ language: "en", text: "second unit" }],
-        workTagIds: [],
+        workTagIds: [otherTag.id],
       }),
     ).resolves.toBeNull();
     await expect(deletePhrase(otherOwner.id, phrase.id)).resolves.toBe(false);

@@ -16,6 +16,7 @@ describe("parseEnv", () => {
         SMTP_FROM: "moyu@example.test",
       }),
     ).toEqual({
+      trustProxy: false,
       databaseUrl: "postgresql://moyu:moyu@localhost:5432/moyu",
       appOrigin: "https://moyu.example.test/",
       authCookieSecret: "synthetic-test-secret-at-least-32-characters",

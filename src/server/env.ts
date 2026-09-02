@@ -3,6 +3,7 @@ import { z } from "zod";
 const appOriginSchema = z.url({ error: "APP_ORIGIN must be a valid URL" });
 
 const rawEnvSchema = z.object({
+  TRUST_PROXY: z.enum(["true", "false"]).default("false"),
   DATABASE_URL: z.url({ error: "DATABASE_URL must be a valid URL" }).refine(
     (value) => {
       const protocol = new URL(value).protocol;
@@ -26,6 +27,7 @@ const rawEnvSchema = z.object({
 });
 
 export type AppEnv = Readonly<{
+  trustProxy?: boolean;
   databaseUrl: string;
   appOrigin: string;
   authCookieSecret: string;
@@ -48,6 +50,7 @@ export function parseEnv(input: NodeJS.ProcessEnv): AppEnv {
   const env = rawEnvSchema.parse(input);
 
   return {
+    trustProxy: env.TRUST_PROXY === "true",
     databaseUrl: env.DATABASE_URL,
     appOrigin: appOrigin.toString(),
     authCookieSecret: env.AUTH_COOKIE_SECRET,

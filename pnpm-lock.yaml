@@ -47,6 +47,9 @@ importers:
       "@types/react-dom":
         specifier: ^19.0.0
         version: 19.2.5(@types/react@19.2.18)
+      "@types/smtp-server":
+        specifier: ^3.5.13
+        version: 3.5.13
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
@@ -56,6 +59,9 @@ importers:
       prettier:
         specifier: ^3.0.0
         version: 3.9.6
+      smtp-server:
+        specifier: ^3.19.7
+        version: 3.19.7
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
@@ -1387,6 +1393,12 @@ packages:
         integrity: sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==,
       }
 
+  "@types/smtp-server@3.5.13":
+    resolution:
+      {
+        integrity: sha512-S3rGl2KbViH+98/CgHipPIWgtAFnjxLsppxIRbgJHNuZL7Y+py+7kZjT7xS+wOmCxYTn4O7IqLqkvekg99MDVQ==,
+      }
+
   "@typescript-eslint/eslint-plugin@8.69.0":
     resolution:
       {
@@ -2061,6 +2073,12 @@ packages:
       }
     engines: { node: ">=0.8.19" }
 
+  ipv6-normalize@1.0.1:
+    resolution:
+      {
+        integrity: sha512-Bm6H79i01DjgGTCWjUuCjJ6QDo1HB96PT/xCYuyJUP9WFbVDrLSbG4EZCvOCun2rNswZb0c3e4Jt/ws795esHA==,
+      }
+
   is-extglob@2.1.1:
     resolution:
       {
@@ -2428,6 +2446,13 @@ packages:
     engines: { node: ">=14" }
     hasBin: true
 
+  punycode.js@2.3.1:
+    resolution:
+      {
+        integrity: sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA==,
+      }
+    engines: { node: ">=6" }
+
   punycode@2.3.1:
     resolution:
       {
@@ -2516,6 +2541,13 @@ packages:
       {
         integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==,
       }
+
+  smtp-server@3.19.7:
+    resolution:
+      {
+        integrity: sha512-3nucTEiZW+ErIDPeRaN4TxeffKGmX2wc/KAL2tNvhrbSufbPQUS/E9anIBRP0OGViHRF9sMFC0uXXX9ZvYW16w==,
+      }
+    engines: { node: ">=18.18.0" }
 
   source-map-js@1.2.1:
     resolution:
@@ -3315,6 +3347,11 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
+  "@types/smtp-server@3.5.13":
+    dependencies:
+      "@types/node": 24.13.3
+      "@types/nodemailer": 8.0.1
+
   "@typescript-eslint/eslint-plugin@8.69.0(@typescript-eslint/parser@8.69.0(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)":
     dependencies:
       "@eslint-community/regexpp": 4.12.2
@@ -3751,6 +3788,8 @@ snapshots:
 
   imurmurhash@0.1.4: {}
 
+  ipv6-normalize@1.0.1: {}
+
   is-extglob@2.1.1: {}
 
   is-glob@4.0.3:
@@ -3938,6 +3977,8 @@ snapshots:
 
   prettier@3.9.6: {}
 
+  punycode.js@2.3.1: {}
+
   punycode@2.3.1: {}
 
   react-dom@19.2.8(react@19.2.8):
@@ -4017,6 +4058,12 @@ snapshots:
   shebang-regex@3.0.0: {}
 
   siginfo@2.0.0: {}
+
+  smtp-server@3.19.7:
+    dependencies:
+      ipv6-normalize: 1.0.1
+      nodemailer: 9.1.1
+      punycode.js: 2.3.1
 
   source-map-js@1.2.1: {}
 

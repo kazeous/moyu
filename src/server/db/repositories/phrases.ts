@@ -222,7 +222,7 @@ export async function updatePhrase(
       .set({
         sourcePhrase: parsedInput.sourcePhrase,
         language: parsedInput.language,
-        note: parsedInput.note,
+        note: parsedInput.note ?? null,
         matchingMode: "exact",
         updatedAt: new Date(),
       })

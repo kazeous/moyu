@@ -13,7 +13,7 @@ export const createPhraseInputSchema = z
     language: z.enum(["ja", "zh"]),
     note: z.string().max(2_000).optional(),
     glosses: z.array(glossSchema).min(1).max(2),
-    workTagIds: z.array(z.string().uuid()).max(20),
+    workTagIds: z.array(z.string().uuid()).min(1).max(20),
   })
   .strict()
   .superRefine(({ glosses }, context) => {
