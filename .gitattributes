@@ -1,0 +1,2 @@
+# Drizzle records the exact SQL byte hash; keep Windows/Linux checkouts identical.
+src/server/db/migrations/*.sql text eol=lf

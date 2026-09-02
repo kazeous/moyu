@@ -1,0 +1,49 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+body {
+  margin: 0;
+  line-height: 1.5;
+}
+main {
+  max-width: 32rem;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+}
+h1 {
+  line-height: 1.2;
+}
+form {
+  display: grid;
+  gap: 1rem;
+}
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+input,
+button {
+  font: inherit;
+  padding: 0.7rem;
+  border: 1px solid;
+  border-radius: 0.25rem;
+}
+button {
+  cursor: pointer;
+  min-height: 2.75rem;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #1679ba;
+  outline-offset: 3px;
+}
+[role="alert"] {
+  color: light-dark(#a01b1b, #ffaaaa);
+}
