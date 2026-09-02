@@ -13,6 +13,9 @@ importers:
       next:
         specifier: ^16.0.0
         version: 16.3.4(@playwright/test@1.62.1)(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      nodemailer:
+        specifier: ^9.1.1
+        version: 9.1.1
       postgres:
         specifier: ^3.4.0
         version: 3.4.9
@@ -35,6 +38,9 @@ importers:
       "@types/node":
         specifier: ^24.0.0
         version: 24.13.3
+      "@types/nodemailer":
+        specifier: ^8.0.1
+        version: 8.0.1
       "@types/react":
         specifier: ^19.0.0
         version: 19.2.18
@@ -1361,6 +1367,12 @@ packages:
         integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==,
       }
 
+  "@types/nodemailer@8.0.1":
+    resolution:
+      {
+        integrity: sha512-PxpaInm8V1JQDd4j0ds5HfvWQk8JupS1C0Picb96QJsrrRDjBH+DlK7L4ZdNSqNULhiZRQHc40nLVShaGxXAMw==,
+      }
+
   "@types/react-dom@19.2.5":
     resolution:
       {
@@ -2288,6 +2300,13 @@ packages:
         optional: true
       sass:
         optional: true
+
+  nodemailer@9.1.1:
+    resolution:
+      {
+        integrity: sha512-izw9mVKFix6YSnC9eLgV6g1opl9DUlRio9ZNcq+Wu9Ujn2UwF+8Nl0B8nz22kEC+CTZCvinkxwJ0DeFbb6NwcQ==,
+      }
+    engines: { node: ">=6.0.0" }
 
   obug@2.1.4:
     resolution:
@@ -3284,6 +3303,10 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
+  "@types/nodemailer@8.0.1":
+    dependencies:
+      "@types/node": 24.13.3
+
   "@types/react-dom@19.2.5(@types/react@19.2.18)":
     dependencies:
       "@types/react": 19.2.18
@@ -3853,6 +3876,8 @@ snapshots:
       - "@babel/core"
       - "@types/node"
       - babel-plugin-macros
+
+  nodemailer@9.1.1: {}
 
   obug@2.1.4: {}
 
