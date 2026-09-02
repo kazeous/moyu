@@ -5,6 +5,7 @@ import postgres from "postgres";
 import { parseEnv } from "@/server/env";
 
 import { databaseSchema } from "./schema";
+import { checkMigrationReadiness } from "./migration-readiness";
 
 let database: ReturnType<typeof drizzle<typeof databaseSchema>> | undefined;
 
@@ -23,4 +24,8 @@ export function getDatabaseClient(): ReturnType<
 
 export async function checkDatabaseConnection(): Promise<void> {
   await getDatabaseClient().execute(sql`SELECT 1`);
+}
+
+export async function checkDatabaseMigrations(): Promise<void> {
+  await checkMigrationReadiness(getDatabaseClient().$client);
 }

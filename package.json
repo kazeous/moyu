@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
+    "verify:foundation": "node --env-file-if-exists=.env scripts/verify-foundation.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
