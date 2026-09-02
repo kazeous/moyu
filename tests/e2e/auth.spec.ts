@@ -7,6 +7,48 @@ import {
   register,
 } from "./helpers";
 
+test("JavaScript-disabled auth forms never put credentials in request URLs", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  const urls: string[] = [];
+  page.on("request", (request) => urls.push(request.url()));
+  const email = emailAddress();
+  const nativePassword = "Synthetic-native-password-123";
+  for (const [mode, button] of [
+    ["sign-up", "Create account"],
+    ["sign-in", "Sign in"],
+    ["magic-link", "Send sign-in link"],
+  ] as const) {
+    await page.goto(`/${mode}`);
+    if (mode === "sign-up")
+      await page.getByLabel("Display name").fill("Native form test");
+    await page.getByLabel("Email", { exact: true }).fill(email);
+    if (mode !== "magic-link")
+      await page.getByLabel("Password", { exact: true }).fill(nativePassword);
+    const navigation = page.waitForResponse((response) =>
+      response.request().isNavigationRequest(),
+    );
+    await page.getByRole("button", { name: button, exact: true }).click();
+    const response = await navigation;
+    expect(
+      urls.every(
+        (url) =>
+          !decodeURIComponent(url).includes(email) &&
+          !url.includes(nativePassword) &&
+          !new URL(url).searchParams.has("password"),
+      ),
+    ).toBe(true);
+    expect(response.request().method()).toBe("POST");
+    expect(response.url()).toBe(`${origin}/api/auth/${mode}`);
+    // Native navigation under no-referrer fails closed at the origin boundary.
+    expect(response.status()).toBe(403);
+    expect(await response.json()).toEqual({ error: "Invalid origin." });
+  }
+  await context.close();
+});
+
 test("browser registration, normalized password sign-in, cookies and revocation", async ({
   page,
   context,

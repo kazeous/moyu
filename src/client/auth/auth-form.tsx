@@ -45,7 +45,12 @@ export function AuthForm({ mode }: { mode: Mode }) {
     }
   }
   return (
-    <form onSubmit={submit} aria-busy={busy}>
+    <form
+      method="post"
+      action={`/api/auth/${mode}`}
+      onSubmit={submit}
+      aria-busy={busy}
+    >
       {mode === "sign-up" && (
         <label>
           Display name
