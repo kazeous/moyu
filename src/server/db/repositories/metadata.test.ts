@@ -129,4 +129,46 @@ describe("private metadata repositories", () => {
 
     await expect(listPhrases(owner.id)).resolves.toEqual([]);
   });
+
+  it("leaves a phrase unchanged when an update includes another owner's tag", async () => {
+    const owner = await createUser({
+      email: fixtureEmail(),
+      displayName: "Owner",
+    });
+    const otherOwner = await createUser({
+      email: fixtureEmail(),
+      displayName: "Other owner",
+    });
+    fixtureUserIds.push(owner.id, otherOwner.id);
+
+    const ownedTag = await createWorkTag(owner.id, {
+      name: "owned",
+      aliases: [],
+    });
+    const foreignTag = await createWorkTag(otherOwner.id, {
+      name: "foreign",
+      aliases: [],
+    });
+    const phrase = await createPhrase(owner.id, {
+      sourcePhrase: "第一架",
+      language: "zh",
+      glosses: [{ language: "en", text: "first unit" }],
+      workTagIds: [ownedTag.id],
+    });
+
+    await expect(
+      updatePhrase(owner.id, phrase.id, {
+        sourcePhrase: "第二架",
+        language: "zh",
+        glosses: [{ language: "en", text: "second unit" }],
+        workTagIds: [ownedTag.id, foreignTag.id],
+      }),
+    ).rejects.toThrow("Work tags must belong to the phrase owner");
+
+    await expect(findPhraseById(owner.id, phrase.id)).resolves.toMatchObject({
+      sourcePhrase: "第一架",
+      glosses: [{ language: "en", text: "first unit" }],
+      workTags: [{ id: ownedTag.id }],
+    });
+  });
 });

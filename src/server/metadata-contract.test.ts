@@ -6,25 +6,32 @@ import {
   workTagInputSchema,
 } from "./metadata-contract";
 
-it("rejects dialogue and OCR fields from phrase metadata", () => {
+const validPhraseInput = {
+  sourcePhrase: "第一架",
+  language: "zh" as const,
+  glosses: [{ language: "en" as const, text: "first unit" }],
+  workTagIds: [],
+};
+
+it.each([
+  ["dialogue", { dialogue: "這是第一架機體" }],
+  ["translation", { translation: "This is the first unit" }],
+  ["image", { image: "data:image/png;base64,abc" }],
+  ["OCR text", { ocrText: "第一架機體" }],
+  ["tokens", { tokens: ["第一", "架"] }],
+  ["lookup results", { lookupResults: ["first unit"] }],
+  ["selection history", { selectionHistory: ["第一架"] }],
+])("rejects %s from phrase metadata", (_fieldName, prohibitedField) => {
   expect(() =>
-    createPhraseInputSchema.parse({
-      sourcePhrase: "第一架",
-      language: "zh",
-      dialogue: "這是第一架機體",
-    }),
+    createPhraseInputSchema.parse({ ...validPhraseInput, ...prohibitedField }),
   ).toThrow();
 });
 
 it("accepts permitted phrase metadata", () => {
-  expect(
-    createPhraseInputSchema.parse({
-      sourcePhrase: "第一架",
-      language: "zh",
-      glosses: [{ language: "en", text: "first unit" }],
-      workTagIds: [],
-    }),
-  ).toMatchObject({ sourcePhrase: "第一架", language: "zh" });
+  expect(createPhraseInputSchema.parse(validPhraseInput)).toMatchObject({
+    sourcePhrase: "第一架",
+    language: "zh",
+  });
 });
 
 it("rejects unknown fields nested in phrase glosses", () => {

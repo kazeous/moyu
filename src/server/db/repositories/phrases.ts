@@ -16,6 +16,80 @@ export type CustomPhrase = typeof customPhrases.$inferSelect & {
   workTags: WorkTag[];
 };
 
+type DatabaseTransaction = Parameters<
+  Parameters<ReturnType<typeof getDatabaseClient>["transaction"]>[0]
+>[0];
+
+async function findOwnerWorkTags(
+  transaction: DatabaseTransaction,
+  ownerId: string,
+  workTagIds: string[],
+): Promise<WorkTag[]> {
+  if (workTagIds.length === 0) {
+    return [];
+  }
+
+  const tags = await transaction
+    .select()
+    .from(workTags)
+    .where(
+      and(eq(workTags.ownerId, ownerId), inArray(workTags.id, workTagIds)),
+    );
+
+  if (tags.length !== workTagIds.length) {
+    throw new Error("Work tags must belong to the phrase owner");
+  }
+
+  return tags;
+}
+
+function ownerScopedPhraseIds(
+  transaction: DatabaseTransaction,
+  ownerId: string,
+  phraseId: string,
+) {
+  return transaction
+    .select({ id: customPhrases.id })
+    .from(customPhrases)
+    .where(
+      and(eq(customPhrases.ownerId, ownerId), eq(customPhrases.id, phraseId)),
+    );
+}
+
+async function replacePhraseRelationships(
+  transaction: DatabaseTransaction,
+  ownerId: string,
+  phraseId: string,
+  input: CreatePhraseInput,
+  workTagIds: string[],
+): Promise<void> {
+  await transaction
+    .delete(phraseGlosses)
+    .where(
+      inArray(
+        phraseGlosses.phraseId,
+        ownerScopedPhraseIds(transaction, ownerId, phraseId),
+      ),
+    );
+  await transaction
+    .delete(phraseTags)
+    .where(
+      inArray(
+        phraseTags.phraseId,
+        ownerScopedPhraseIds(transaction, ownerId, phraseId),
+      ),
+    );
+  await transaction
+    .insert(phraseGlosses)
+    .values(input.glosses.map((gloss) => ({ ...gloss, phraseId })));
+
+  if (workTagIds.length > 0) {
+    await transaction
+      .insert(phraseTags)
+      .values(workTagIds.map((tagId) => ({ phraseId, tagId })));
+  }
+}
+
 async function phraseWithMetadata(
   ownerId: string,
   phraseId: string,
@@ -36,7 +110,13 @@ async function phraseWithMetadata(
     database
       .select({ language: phraseGlosses.language, text: phraseGlosses.text })
       .from(phraseGlosses)
-      .where(eq(phraseGlosses.phraseId, phrase.id)),
+      .innerJoin(customPhrases, eq(phraseGlosses.phraseId, customPhrases.id))
+      .where(
+        and(
+          eq(customPhrases.ownerId, ownerId),
+          eq(customPhrases.id, phrase.id),
+        ),
+      ),
     database
       .select({
         id: workTags.id,
@@ -85,22 +165,7 @@ export async function createPhrase(
   const database = getDatabaseClient();
 
   return database.transaction(async (transaction) => {
-    const tags =
-      uniqueTagIds.length === 0
-        ? []
-        : await transaction
-            .select()
-            .from(workTags)
-            .where(
-              and(
-                eq(workTags.ownerId, ownerId),
-                inArray(workTags.id, uniqueTagIds),
-              ),
-            );
-
-    if (tags.length !== uniqueTagIds.length) {
-      throw new Error("Work tags must belong to the phrase owner");
-    }
+    const tags = await findOwnerWorkTags(transaction, ownerId, uniqueTagIds);
 
     const [phrase] = await transaction
       .insert(customPhrases)
@@ -117,17 +182,13 @@ export async function createPhrase(
       throw new Error("Unable to create phrase");
     }
 
-    await transaction
-      .insert(phraseGlosses)
-      .values(
-        parsedInput.glosses.map((gloss) => ({ ...gloss, phraseId: phrase.id })),
-      );
-
-    if (uniqueTagIds.length > 0) {
-      await transaction
-        .insert(phraseTags)
-        .values(uniqueTagIds.map((tagId) => ({ phraseId: phrase.id, tagId })));
-    }
+    await replacePhraseRelationships(
+      transaction,
+      ownerId,
+      phrase.id,
+      parsedInput,
+      uniqueTagIds,
+    );
 
     return { ...phrase, glosses: parsedInput.glosses, workTags: tags };
   });
@@ -154,22 +215,7 @@ export async function updatePhrase(
       return null;
     }
 
-    const tags =
-      uniqueTagIds.length === 0
-        ? []
-        : await transaction
-            .select()
-            .from(workTags)
-            .where(
-              and(
-                eq(workTags.ownerId, ownerId),
-                inArray(workTags.id, uniqueTagIds),
-              ),
-            );
-
-    if (tags.length !== uniqueTagIds.length) {
-      throw new Error("Work tags must belong to the phrase owner");
-    }
+    const tags = await findOwnerWorkTags(transaction, ownerId, uniqueTagIds);
 
     const [phrase] = await transaction
       .update(customPhrases)
@@ -180,30 +226,25 @@ export async function updatePhrase(
         matchingMode: "exact",
         updatedAt: new Date(),
       })
-      .where(eq(customPhrases.id, existingPhrase.id))
+      .where(
+        and(
+          eq(customPhrases.ownerId, ownerId),
+          eq(customPhrases.id, existingPhrase.id),
+        ),
+      )
       .returning();
 
     if (!phrase) {
       throw new Error("Unable to update phrase");
     }
 
-    await transaction
-      .delete(phraseGlosses)
-      .where(eq(phraseGlosses.phraseId, phraseId));
-    await transaction
-      .delete(phraseTags)
-      .where(eq(phraseTags.phraseId, phraseId));
-    await transaction
-      .insert(phraseGlosses)
-      .values(
-        parsedInput.glosses.map((gloss) => ({ ...gloss, phraseId: phrase.id })),
-      );
-
-    if (uniqueTagIds.length > 0) {
-      await transaction
-        .insert(phraseTags)
-        .values(uniqueTagIds.map((tagId) => ({ phraseId: phrase.id, tagId })));
-    }
+    await replacePhraseRelationships(
+      transaction,
+      ownerId,
+      phrase.id,
+      parsedInput,
+      uniqueTagIds,
+    );
 
     return { ...phrase, glosses: parsedInput.glosses, workTags: tags };
   });
