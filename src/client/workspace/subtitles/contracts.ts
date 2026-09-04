@@ -199,3 +199,74 @@ export const subtitleArtifactSchema = z
     }
   });
 export type SubtitleArtifact = Readonly<z.infer<typeof subtitleArtifactSchema>>;
+
+export const alignmentDecisionSchema = z.enum([
+  "automatic",
+  "pending",
+  "accepted",
+  "source-only",
+]);
+export type AlignmentDecision = Readonly<
+  z.infer<typeof alignmentDecisionSchema>
+>;
+
+export const alignmentGroupStatusSchema = z.enum([
+  "confident",
+  "needs-review",
+  "source-only",
+]);
+export type AlignmentGroupStatus = Readonly<
+  z.infer<typeof alignmentGroupStatusSchema>
+>;
+
+export const alignmentGroupSchema = z
+  .object({
+    id: z.string().min(1),
+    sourceCueIds: z.array(z.string().min(1)).min(1),
+    referenceCueIds: z.array(z.string().min(1)),
+    status: alignmentGroupStatusSchema,
+    confidence: z.number().int().min(0).max(100).nullable(),
+    decision: alignmentDecisionSchema,
+  })
+  .strict();
+export type AlignmentGroup = Readonly<{
+  id: string;
+  sourceCueIds: readonly [string, ...string[]];
+  referenceCueIds: readonly string[];
+  status: AlignmentGroupStatus;
+  confidence: number | null;
+  decision: AlignmentDecision;
+}>;
+
+export const subtitleImportDraftSchema = z
+  .object({
+    version: z.literal(1),
+    id: z.string().min(1),
+    sourceArtifactId: z.string().min(1),
+    referenceArtifactId: z.string().min(1).optional(),
+    sourceLanguage: z.enum(["ja", "zh"]),
+    referenceLanguage: z.enum(["en", "vi"]),
+    sourceCues: z.array(subtitleCueSchema),
+    referenceCues: z.array(subtitleCueSchema),
+    groups: z.array(alignmentGroupSchema),
+    unassignedReferenceCueIds: z.array(z.string().min(1)),
+    ignoredReferenceCueIds: z.array(z.string().min(1)),
+    activeGroupId: z.string().min(1).nullable(),
+    blockingFailures: z.array(subtitleProcessingFailureSchema),
+  })
+  .strict();
+export type SubtitleImportDraft = Readonly<{
+  version: 1;
+  id: string;
+  sourceArtifactId: string;
+  referenceArtifactId?: string;
+  sourceLanguage: "ja" | "zh";
+  referenceLanguage: "en" | "vi";
+  sourceCues: readonly SubtitleCue[];
+  referenceCues: readonly SubtitleCue[];
+  groups: readonly AlignmentGroup[];
+  unassignedReferenceCueIds: readonly string[];
+  ignoredReferenceCueIds: readonly string[];
+  activeGroupId: string | null;
+  blockingFailures: readonly SubtitleProcessingFailure[];
+}>;
