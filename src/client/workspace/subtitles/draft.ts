@@ -55,6 +55,17 @@ function parseDraft(value: unknown): SubtitleImportDraft {
   ) as unknown as SubtitleImportDraft;
 }
 
+function requireConserved(value: unknown): SubtitleImportDraft {
+  const draft = parseDraft(value);
+  const validation = validateCueConservation(draft);
+  if (validation.kind === "invalid") {
+    throw new Error(
+      `Subtitle cue conservation is invalid: ${validation.reason}`,
+    );
+  }
+  return draft;
+}
+
 function orderedCues(cues: readonly SubtitleCue[]) {
   return [...cues].sort(
     (left, right) =>
@@ -118,12 +129,13 @@ function updateGroup(
     >
   > = {},
 ) {
-  requireGroup(draft, groupId);
+  const current = requireConserved(draft);
+  requireGroup(current, groupId);
   const replacements = Array.isArray(replacement) ? replacement : [replacement];
-  const groups = draft.groups.flatMap((group) =>
+  const groups = current.groups.flatMap((group) =>
     group.id === groupId ? replacements : [group],
   );
-  return parseDraft({ ...draft, ...changes, groups });
+  return requireConserved({ ...current, ...changes, groups });
 }
 
 export function createSubtitleImportDraft(
@@ -141,7 +153,7 @@ export function createSubtitleImportDraft(
     throw new Error("Subtitle cue identifiers must be unique.");
 
   const proposal = alignSubtitleCues(parsed.sourceCues, parsed.referenceCues);
-  return parseDraft({
+  return requireConserved({
     version: 1,
     id: parsed.id,
     sourceArtifactId: parsed.sourceArtifactId,
@@ -164,7 +176,7 @@ export function acceptAlignmentGroup(
   draft: SubtitleImportDraft,
   groupId: string,
 ): SubtitleImportDraft {
-  const parsed = parseDraft(draft);
+  const parsed = requireConserved(draft);
   const group = requireGroup(parsed, groupId);
   if (group.referenceCueIds.length === 0) {
     throw new Error(
@@ -179,7 +191,7 @@ export function attachReferences(
   groupId: string,
   referenceCueIds: readonly string[],
 ): SubtitleImportDraft {
-  const parsed = parseDraft(draft);
+  const parsed = requireConserved(draft);
   const group = requireGroup(parsed, groupId);
   requireUnassignedReferences(parsed, referenceCueIds);
   const attached = orderedReferenceIds(parsed, [
@@ -192,7 +204,8 @@ export function attachReferences(
     {
       ...group,
       referenceCueIds: attached,
-      status: group.status === "source-only" ? "needs-review" : group.status,
+      status: "needs-review",
+      confidence: null,
       decision: "accepted",
     },
     {
@@ -208,7 +221,7 @@ export function detachReferences(
   groupId: string,
   referenceCueIds: readonly string[],
 ): SubtitleImportDraft {
-  const parsed = parseDraft(draft);
+  const parsed = requireConserved(draft);
   const group = requireGroup(parsed, groupId);
   if (referenceCueIds.length === 0)
     throw new Error("At least one attached reference cue is required.");
@@ -232,6 +245,7 @@ export function detachReferences(
       ...group,
       referenceCueIds: remaining,
       status: remaining.length === 0 ? "source-only" : "needs-review",
+      confidence: null,
       decision: "pending",
     },
     {
@@ -247,7 +261,7 @@ export function splitSourceGroup(
   draft: SubtitleImportDraft,
   groupId: string,
 ): SubtitleImportDraft {
-  const parsed = parseDraft(draft);
+  const parsed = requireConserved(draft);
   const group = requireGroup(parsed, groupId);
   if (group.sourceCueIds.length < 2)
     throw new Error("Only multi-source alignment groups can be split.");
@@ -279,7 +293,7 @@ export function keepSourceOnly(
   draft: SubtitleImportDraft,
   groupId: string,
 ): SubtitleImportDraft {
-  const parsed = parseDraft(draft);
+  const parsed = requireConserved(draft);
   const group = requireGroup(parsed, groupId);
   return updateGroup(
     parsed,
@@ -304,13 +318,13 @@ export function ignoreReference(
   draft: SubtitleImportDraft,
   referenceCueId: string,
 ): SubtitleImportDraft {
-  const parsed = parseDraft(draft);
+  const parsed = requireConserved(draft);
   if (!parsed.unassignedReferenceCueIds.includes(referenceCueId)) {
     throw new Error(
       `Reference cue ${referenceCueId} is not available in the unassigned reference tray.`,
     );
   }
-  return parseDraft({
+  return requireConserved({
     ...parsed,
     unassignedReferenceCueIds: parsed.unassignedReferenceCueIds.filter(
       (id) => id !== referenceCueId,
@@ -424,7 +438,7 @@ function groupTimeSpan(sourceCues: readonly SubtitleCue[]) {
 export function createReviewLinesFromSubtitleDraft(
   draft: SubtitleImportDraft,
 ): readonly SubtitleDraftReviewLine[] {
-  const parsed = parseDraft(draft);
+  const parsed = requireConserved(draft);
   if (!isSubtitleDraftReady(parsed))
     throw new Error("Subtitle alignment is not ready for review.");
   const sourceById = new Map(parsed.sourceCues.map((cue) => [cue.id, cue]));

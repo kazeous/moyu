@@ -153,4 +153,24 @@ describe("alignSubtitleCues", () => {
       alignSubtitleCues(source, reference),
     );
   });
+
+  it("aligns a large sparse ordered fixture without quadratic comparison work", () => {
+    const count = 8_000;
+    const source = Array.from({ length: count }, (_, index) =>
+      cue(`s-${index}`, index * 2_000, index * 2_000 + 500, index),
+    );
+    const reference = Array.from({ length: count }, (_, index) =>
+      cue(`r-${index}`, index * 2_000, index * 2_000 + 500, index),
+    );
+    const startedAt = performance.now();
+    const proposal = alignSubtitleCues(source, reference);
+
+    expect(proposal.groups).toHaveLength(count);
+    expect(proposal.groups.at(-1)).toMatchObject({
+      sourceCueIds: [`s-${count - 1}`],
+      referenceCueIds: [`r-${count - 1}`],
+      decision: "automatic",
+    });
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+  });
 });

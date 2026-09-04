@@ -7,6 +7,7 @@ import {
 const CONFIDENT_SCORE = 80;
 
 type Interval = Readonly<{ startMs: number; endMs: number }>;
+type TimedCue = Readonly<{ cue: SubtitleCue; interval: Interval }>;
 
 export type AlignmentProposal = Readonly<{
   groups: readonly AlignmentGroup[];
@@ -52,6 +53,21 @@ function ordered(cues: readonly SubtitleCue[]) {
     (left, right) =>
       left.sourceOrder - right.sourceOrder || left.id.localeCompare(right.id),
   );
+}
+
+function orderedByStart(cues: readonly SubtitleCue[]): TimedCue[] {
+  return cues
+    .flatMap((cue) => {
+      const interval = intervalFor(cue);
+      return interval === null ? [] : [{ cue, interval }];
+    })
+    .sort(
+      (left, right) =>
+        left.interval.startMs - right.interval.startMs ||
+        left.interval.endMs - right.interval.endMs ||
+        left.cue.sourceOrder - right.cue.sourceOrder ||
+        left.cue.id.localeCompare(right.cue.id),
+    );
 }
 
 function weightedMidpoint(cues: readonly SubtitleCue[]) {
@@ -168,6 +184,75 @@ function createGroup(
   };
 }
 
+class EndHeap {
+  private readonly values: TimedCue[] = [];
+
+  peek() {
+    return this.values[0];
+  }
+
+  push(value: TimedCue) {
+    this.values.push(value);
+    let index = this.values.length - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (this.precedes(this.values[parent], value)) break;
+      this.values[index] = this.values[parent];
+      index = parent;
+    }
+    this.values[index] = value;
+  }
+
+  pop() {
+    const first = this.values[0];
+    const last = this.values.pop();
+    if (first === undefined || last === undefined) return first;
+    if (this.values.length === 0) return first;
+
+    let index = 0;
+    while (index * 2 + 1 < this.values.length) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      const child =
+        right < this.values.length &&
+        this.precedes(this.values[right], this.values[left])
+          ? right
+          : left;
+      if (this.precedes(last, this.values[child])) break;
+      this.values[index] = this.values[child];
+      index = child;
+    }
+    this.values[index] = last;
+    return first;
+  }
+
+  private precedes(left: TimedCue, right: TimedCue) {
+    return (
+      left.interval.endMs < right.interval.endMs ||
+      (left.interval.endMs === right.interval.endMs &&
+        (left.interval.startMs < right.interval.startMs ||
+          (left.interval.startMs === right.interval.startMs &&
+            (left.cue.sourceOrder < right.cue.sourceOrder ||
+              (left.cue.sourceOrder === right.cue.sourceOrder &&
+                left.cue.id.localeCompare(right.cue.id) <= 0)))))
+    );
+  }
+}
+
+function addEdge(
+  sourceEdges: Map<string, Set<string>>,
+  referenceEdges: Map<string, Set<string>>,
+  sourceId: string,
+  referenceId: string,
+) {
+  const sourceReferences = sourceEdges.get(sourceId) ?? new Set<string>();
+  sourceReferences.add(referenceId);
+  sourceEdges.set(sourceId, sourceReferences);
+  const referenceSources = referenceEdges.get(referenceId) ?? new Set<string>();
+  referenceSources.add(sourceId);
+  referenceEdges.set(referenceId, referenceSources);
+}
+
 export function alignSubtitleCues(
   sourceCues: readonly SubtitleCue[],
   referenceCues: readonly SubtitleCue[],
@@ -175,58 +260,77 @@ export function alignSubtitleCues(
   const source = ordered(sourceCues);
   const reference = ordered(referenceCues);
   const sourceById = new Map(source.map((cue) => [cue.id, cue]));
-  const edges = new Map<string, Set<string>>();
+  const referenceById = new Map(reference.map((cue) => [cue.id, cue]));
+  const sourceEdges = new Map<string, Set<string>>();
+  const referenceEdges = new Map<string, Set<string>>();
+  const activeReferences = new Map<string, TimedCue>();
+  const expiringReferences = new EndHeap();
+  const timedReferences = orderedByStart(reference);
+  let nextReference = 0;
 
-  for (const sourceCue of source) {
-    const sourceInterval = intervalFor(sourceCue);
-    if (sourceInterval === null) continue;
-    for (const referenceCue of reference) {
-      const referenceInterval = intervalFor(referenceCue);
+  for (const sourceTimedCue of orderedByStart(source)) {
+    while (
+      nextReference < timedReferences.length &&
+      timedReferences[nextReference].interval.startMs <
+        sourceTimedCue.interval.endMs
+    ) {
+      const referenceTimedCue = timedReferences[nextReference];
+      activeReferences.set(referenceTimedCue.cue.id, referenceTimedCue);
+      expiringReferences.push(referenceTimedCue);
+      nextReference += 1;
+    }
+    while (
+      expiringReferences.peek() !== undefined &&
+      expiringReferences.peek()!.interval.endMs <=
+        sourceTimedCue.interval.startMs
+    ) {
+      const expired = expiringReferences.pop();
+      if (expired !== undefined) activeReferences.delete(expired.cue.id);
+    }
+    for (const referenceTimedCue of activeReferences.values()) {
       if (
-        referenceInterval === null ||
-        overlapDuration(sourceInterval, referenceInterval) === 0
-      )
-        continue;
-      (
-        edges.get(sourceCue.id) ??
-        edges.set(sourceCue.id, new Set()).get(sourceCue.id)!
-      ).add(referenceCue.id);
+        overlapDuration(sourceTimedCue.interval, referenceTimedCue.interval) > 0
+      ) {
+        addEdge(
+          sourceEdges,
+          referenceEdges,
+          sourceTimedCue.cue.id,
+          referenceTimedCue.cue.id,
+        );
+      }
     }
   }
 
   const seenSources = new Set<string>();
   const seenReferences = new Set<string>();
   const groups: AlignmentGroup[] = [];
-  const connectedSourceIds = new Set(edges.keys());
 
   for (const startSource of source) {
-    if (
-      !connectedSourceIds.has(startSource.id) ||
-      seenSources.has(startSource.id)
-    )
+    if (!sourceEdges.has(startSource.id) || seenSources.has(startSource.id))
       continue;
     const componentSources = new Set<string>();
     const componentReferences = new Set<string>();
     const queue: Array<{ kind: "source" | "reference"; id: string }> = [
       { kind: "source", id: startSource.id },
     ];
+    let queueIndex = 0;
 
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (current === undefined) break;
+    while (queueIndex < queue.length) {
+      const current = queue[queueIndex];
+      queueIndex += 1;
       if (current.kind === "source") {
         if (seenSources.has(current.id)) continue;
         seenSources.add(current.id);
         componentSources.add(current.id);
-        for (const referenceId of edges.get(current.id) ?? [])
+        for (const referenceId of sourceEdges.get(current.id) ?? []) {
           queue.push({ kind: "reference", id: referenceId });
+        }
       } else {
         if (seenReferences.has(current.id)) continue;
         seenReferences.add(current.id);
         componentReferences.add(current.id);
-        for (const [sourceId, referenceIds] of edges) {
-          if (referenceIds.has(current.id))
-            queue.push({ kind: "source", id: sourceId });
+        for (const sourceId of referenceEdges.get(current.id) ?? []) {
+          queue.push({ kind: "source", id: sourceId });
         }
       }
     }
@@ -234,8 +338,8 @@ export function alignSubtitleCues(
     groups.push(
       createGroup(
         groupId(groups.length),
-        source.filter((cue) => componentSources.has(cue.id)),
-        reference.filter((cue) => componentReferences.has(cue.id)),
+        [...componentSources].map((id) => sourceById.get(id)!),
+        [...componentReferences].map((id) => referenceById.get(id)!),
       ),
     );
   }

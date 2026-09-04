@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { SubtitleCue, SubtitleProcessingFailure } from "./contracts";
+import {
+  subtitleImportDraftSchema,
+  type SubtitleCue,
+  type SubtitleImportDraft,
+  type SubtitleProcessingFailure,
+} from "./contracts";
 import {
   acceptAlignmentGroup,
   attachReferences,
@@ -200,5 +205,143 @@ describe("subtitle import draft corrections", () => {
     expect(() => createReviewLinesFromSubtitleDraft(draft)).toThrow(
       "Subtitle alignment is not ready for review.",
     );
+  });
+
+  it("rejects empty drafts, duplicate group IDs, and duplicate cue IDs at the runtime boundary", () => {
+    const ready = keepSourceOnly(
+      draftFrom([cue("s1", 0, 1_000, 0)]),
+      "alignment-group-1",
+    );
+
+    expect(
+      subtitleImportDraftSchema.safeParse({
+        ...ready,
+        sourceCues: [],
+        groups: [],
+        activeGroupId: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      subtitleImportDraftSchema.safeParse({
+        ...ready,
+        groups: [...ready.groups, ...ready.groups],
+      }).success,
+    ).toBe(false);
+    expect(
+      subtitleImportDraftSchema.safeParse({
+        ...ready,
+        referenceCues: [cue("s1", 2_000, 3_000, 0)],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects incoherent decision, status, and reference combinations before readiness", () => {
+    const ready = keepSourceOnly(
+      draftFrom([cue("s1", 0, 1_000, 0)]),
+      "alignment-group-1",
+    );
+    const incoherent = {
+      ...ready,
+      groups: [
+        {
+          ...ready.groups[0],
+          decision: "automatic",
+          confidence: 80,
+        },
+      ],
+    } as unknown as SubtitleImportDraft;
+
+    expect(subtitleImportDraftSchema.safeParse(incoherent).success).toBe(false);
+    expect(isSubtitleDraftReady(incoherent)).toBe(false);
+  });
+
+  it("rejects invalid conservation before edits and validates generated split groups after edits", () => {
+    const invalidBeforeEdit = {
+      ...draftFrom([cue("s1", 0, 1_000, 0), cue("s2", 2_000, 3_000, 1)]),
+      groups: [
+        {
+          id: "alignment-group-1",
+          sourceCueIds: ["s1"],
+          referenceCueIds: [],
+          status: "source-only",
+          confidence: null,
+          decision: "source-only",
+        },
+        {
+          id: "alignment-group-2",
+          sourceCueIds: ["s1"],
+          referenceCueIds: [],
+          status: "source-only",
+          confidence: null,
+          decision: "source-only",
+        },
+      ],
+    } as unknown as SubtitleImportDraft;
+    expect(validateCueConservation(invalidBeforeEdit)).toMatchObject({
+      kind: "invalid",
+    });
+    expect(() =>
+      keepSourceOnly(invalidBeforeEdit, "alignment-group-1"),
+    ).toThrow("Subtitle cue conservation is invalid");
+
+    const validBeforeSplit = {
+      ...draftFrom(
+        [
+          cue("s1", 0, 1_000, 0),
+          cue("s2", 1_000, 2_000, 1),
+          cue("s3", 2_000, 3_000, 2),
+        ],
+        [cue("r1", 0, 2_000, 0)],
+      ),
+      groups: [
+        {
+          id: "group",
+          sourceCueIds: ["s1", "s2"],
+          referenceCueIds: ["r1"],
+          status: "needs-review",
+          confidence: 90,
+          decision: "accepted",
+        },
+        {
+          id: "group:split:1",
+          sourceCueIds: ["s3"],
+          referenceCueIds: [],
+          status: "source-only",
+          confidence: null,
+          decision: "source-only",
+        },
+      ],
+      unassignedReferenceCueIds: [],
+      ignoredReferenceCueIds: [],
+      activeGroupId: "group",
+    } as unknown as SubtitleImportDraft;
+    expect(validateCueConservation(validBeforeSplit)).toEqual({
+      kind: "valid",
+    });
+    expect(() => splitSourceGroup(validBeforeSplit, "group")).toThrow();
+  });
+
+  it("invalidates automatic confidence when membership is manually attached or detached", () => {
+    const draft = draftFrom(
+      [cue("s1", 0, 4_000, 0)],
+      [cue("r1", 0, 4_000, 0), cue("r2", 5_000, 6_000, 1)],
+    );
+    const attached = attachReferences(draft, draft.groups[0].id, ["r2"]);
+    const detached = detachReferences(attached, attached.groups[0].id, ["r1"]);
+
+    expect(draft.groups[0]).toMatchObject({
+      status: "confident",
+      confidence: 100,
+    });
+    expect(attached.groups[0]).toMatchObject({
+      status: "needs-review",
+      confidence: null,
+      decision: "accepted",
+    });
+    expect(detached.groups[0]).toMatchObject({
+      status: "needs-review",
+      confidence: null,
+      decision: "pending",
+    });
   });
 });

@@ -228,6 +228,42 @@ export const alignmentGroupSchema = z
     confidence: z.number().int().min(0).max(100).nullable(),
     decision: alignmentDecisionSchema,
   })
+  .superRefine((group, context) => {
+    const hasReferences = group.referenceCueIds.length > 0;
+    const addIssue = (message: string) =>
+      context.addIssue({ code: "custom", message });
+
+    if (group.status === "source-only") {
+      if (hasReferences)
+        addIssue("Source-only groups cannot retain reference cue IDs.");
+      if (group.confidence !== null)
+        addIssue("Source-only groups cannot retain alignment confidence.");
+      if (group.decision !== "pending" && group.decision !== "source-only") {
+        addIssue(
+          "Source-only groups require a pending or source-only decision.",
+        );
+      }
+      return;
+    }
+
+    if (!hasReferences)
+      addIssue("Matched groups require at least one reference cue ID.");
+    if (group.decision === "source-only")
+      addIssue("Matched groups cannot use a source-only decision.");
+    if (group.status === "confident") {
+      if (group.confidence === null)
+        addIssue("Confident groups require a calculated confidence.");
+      if (group.decision !== "automatic" && group.decision !== "accepted") {
+        addIssue("Confident groups require an automatic or accepted decision.");
+      }
+    } else if (group.decision === "automatic") {
+      addIssue("Only confident groups can use an automatic decision.");
+    }
+
+    if (group.decision === "automatic" && (group.confidence ?? 0) < 80) {
+      addIssue("Automatic groups require confidence of at least 80.");
+    }
+  })
   .strict();
 export type AlignmentGroup = Readonly<{
   id: string;
@@ -246,13 +282,43 @@ export const subtitleImportDraftSchema = z
     referenceArtifactId: z.string().min(1).optional(),
     sourceLanguage: z.enum(["ja", "zh"]),
     referenceLanguage: z.enum(["en", "vi"]),
-    sourceCues: z.array(subtitleCueSchema),
+    sourceCues: z.array(subtitleCueSchema).min(1),
     referenceCues: z.array(subtitleCueSchema),
-    groups: z.array(alignmentGroupSchema),
+    groups: z.array(alignmentGroupSchema).min(1),
     unassignedReferenceCueIds: z.array(z.string().min(1)),
     ignoredReferenceCueIds: z.array(z.string().min(1)),
     activeGroupId: z.string().min(1).nullable(),
     blockingFailures: z.array(subtitleProcessingFailureSchema),
+  })
+  .superRefine((draft, context) => {
+    const cueIds = [...draft.sourceCues, ...draft.referenceCues].map(
+      (cue) => cue.id,
+    );
+    if (new Set(cueIds).size !== cueIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["sourceCues"],
+        message: "Subtitle cue identifiers must be globally unique.",
+      });
+    }
+    const groupIds = draft.groups.map((group) => group.id);
+    if (new Set(groupIds).size !== groupIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["groups"],
+        message: "Alignment group identifiers must be unique.",
+      });
+    }
+    if (
+      draft.activeGroupId !== null &&
+      !groupIds.includes(draft.activeGroupId)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["activeGroupId"],
+        message: "The active alignment group must exist in the draft.",
+      });
+    }
   })
   .strict();
 export type SubtitleImportDraft = Readonly<{
