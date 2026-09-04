@@ -8,7 +8,6 @@ import type {
 
 export type QueuedWorkspaceSaveResult =
   LocalWorkspaceSaveResult | Readonly<{ kind: "ignored" }>;
-export type QueuedSessionSaveResult = QueuedWorkspaceSaveResult;
 
 export interface WorkspacePersistenceQueue {
   beginReviewContent(): void;
@@ -23,18 +22,9 @@ export interface WorkspacePersistenceQueue {
   settle(): Promise<void>;
 }
 
-export interface SessionPersistenceQueue extends WorkspacePersistenceQueue {
-  /** Temporary compatibility for the existing paste UI until Task 7. */
-  beginSession(): void;
-  /** Temporary compatibility for the existing paste UI until Task 7. */
-  clear(): Promise<LocalWorkspaceSaveResult>;
-  /** Temporary compatibility for the existing paste UI until Task 7. */
-  save(session: ReviewSession): Promise<QueuedWorkspaceSaveResult>;
-}
-
-export function createSessionPersistenceQueue(
+export function createWorkspacePersistenceQueue(
   getStore: () => LocalWorkspaceStore,
-): SessionPersistenceQueue {
+): WorkspacePersistenceQueue {
   let queue = Promise.resolve<unknown>(undefined);
   let reviewContentBlocked = false;
   let barrierGeneration = 0;
@@ -97,7 +87,7 @@ export function createSessionPersistenceQueue(
     return saveReviewContent((store) => store.saveSession(session));
   }
 
-  const persistence: SessionPersistenceQueue = {
+  const persistence: WorkspacePersistenceQueue = {
     beginReviewContent,
     clearReviewContent,
     savePreferences(preferences) {
@@ -110,11 +100,6 @@ export function createSessionPersistenceQueue(
     settle() {
       return queue.then(() => undefined);
     },
-    beginSession: beginReviewContent,
-    clear: clearReviewContent,
-    save: saveSession,
   };
   return persistence;
 }
-
-export const createWorkspacePersistenceQueue = createSessionPersistenceQueue;

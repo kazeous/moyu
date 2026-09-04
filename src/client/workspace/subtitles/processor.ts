@@ -6,6 +6,9 @@ import {
   type ProcessSubtitleResponse,
   type SubtitleDecodeFailure,
   type SubtitleParseFailure,
+  type SubtitleParseResult,
+  type SubtitleFileRole,
+  type SubtitleWorkerFile,
   type SubtitleProcessingFailureCode,
   type SubtitleCue,
   type SubtitleWorkerResponse,
@@ -88,8 +91,25 @@ function validatedResponse(response: ProcessSubtitleResponse) {
     : invalidWorkerMessageResponse(response.operationId);
 }
 
-export function processSubtitleFiles(
+type ParsedFileResult = SubtitleDecodeFailure | SubtitleParseResult;
+type FileParser = (
+  role: SubtitleFileRole,
+  file: SubtitleWorkerFile,
+) => ParsedFileResult;
+
+function decodeAndParseFile(file: SubtitleWorkerFile): ParsedFileResult {
+  const decoded = decodeSubtitleBytes(file.bytes, file.encoding);
+  if (decoded.kind !== "decoded") return decoded;
+  return parseSubtitle({
+    artifactId: file.artifactId,
+    format: file.format,
+    text: decoded.text,
+  });
+}
+
+function processWithParser(
   request: ProcessSubtitleRequest,
+  parseFile: FileParser,
 ): ProcessSubtitleResponse {
   const parsedRequest = subtitleWorkerRequestSchema.safeParse(request);
   if (!parsedRequest.success)
@@ -97,20 +117,7 @@ export function processSubtitleFiles(
 
   const input = parsedRequest.data;
   try {
-    const sourceDecoded = decodeSubtitleBytes(
-      input.source.bytes,
-      input.source.encoding,
-    );
-    if (sourceDecoded.kind !== "decoded") {
-      return validatedResponse(
-        processingError(input.operationId, "source", sourceDecoded),
-      );
-    }
-    const sourceParsed = parseSubtitle({
-      artifactId: input.source.artifactId,
-      format: input.source.format,
-      text: sourceDecoded.text,
-    });
+    const sourceParsed = parseFile("source", input.source);
     if (sourceParsed.kind !== "parsed") {
       return validatedResponse(
         processingError(input.operationId, "source", sourceParsed),
@@ -119,20 +126,7 @@ export function processSubtitleFiles(
 
     let referenceCues: readonly SubtitleCue[] = [];
     if (input.reference !== undefined) {
-      const referenceDecoded = decodeSubtitleBytes(
-        input.reference.bytes,
-        input.reference.encoding,
-      );
-      if (referenceDecoded.kind !== "decoded") {
-        return validatedResponse(
-          processingError(input.operationId, "reference", referenceDecoded),
-        );
-      }
-      const referenceParsed = parseSubtitle({
-        artifactId: input.reference.artifactId,
-        format: input.reference.format,
-        text: referenceDecoded.text,
-      });
+      const referenceParsed = parseFile("reference", input.reference);
       if (referenceParsed.kind !== "parsed") {
         return validatedResponse(
           processingError(input.operationId, "reference", referenceParsed),
@@ -160,4 +154,58 @@ export function processSubtitleFiles(
   } catch {
     return validatedResponse(unexpectedError(input.operationId));
   }
+}
+
+export function processSubtitleFiles(
+  request: ProcessSubtitleRequest,
+): ProcessSubtitleResponse {
+  return processWithParser(request, (_role, file) => decodeAndParseFile(file));
+}
+
+type ParsedFileCache = Readonly<{
+  artifactId: string;
+  format: SubtitleWorkerFile["format"];
+  encoding: SubtitleWorkerFile["encoding"];
+  bytes: Uint8Array;
+  result: Extract<SubtitleParseResult, { kind: "parsed" }>;
+}>;
+
+function matchesCachedFile(
+  cached: ParsedFileCache | undefined,
+  file: SubtitleWorkerFile,
+): cached is ParsedFileCache {
+  if (
+    !cached ||
+    cached.artifactId !== file.artifactId ||
+    cached.format !== file.format ||
+    cached.encoding !== file.encoding ||
+    cached.bytes.byteLength !== file.bytes.byteLength
+  )
+    return false;
+  const bytes = new Uint8Array(file.bytes);
+  return cached.bytes.every((byte, index) => byte === bytes[index]);
+}
+
+/** One last-successful parse per role, scoped to a single worker lifetime. */
+export function createSubtitleProcessor(): (
+  request: ProcessSubtitleRequest,
+) => ProcessSubtitleResponse {
+  const cache: Partial<Record<SubtitleFileRole, ParsedFileCache>> = {};
+  return (request) =>
+    processWithParser(request, (role, file) => {
+      const cached = cache[role];
+      if (matchesCachedFile(cached, file)) return cached.result;
+      const result = decodeAndParseFile(file);
+      if (result.kind === "parsed") {
+        cache[role] = {
+          artifactId: file.artifactId,
+          format: file.format,
+          encoding: file.encoding,
+          // Never retain the caller's mutable ArrayBuffer as comparison evidence.
+          bytes: new Uint8Array(file.bytes.slice(0)),
+          result,
+        };
+      }
+      return result;
+    });
 }

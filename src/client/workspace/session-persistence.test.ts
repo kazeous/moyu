@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ReviewSession } from "./model";
-import { createSessionPersistenceQueue } from "./session-persistence";
+import { createWorkspacePersistenceQueue } from "./session-persistence";
 import type {
   LocalWorkspaceStore,
   SaveSubtitleImportInput,
@@ -66,7 +66,6 @@ function memoryStore(overrides: Partial<LocalWorkspaceStore> = {}) {
           artifacts: [],
           preferences: { showSpeakerNames: true },
         },
-        session: null,
       };
     },
     async saveSession() {
@@ -90,7 +89,7 @@ function memoryStore(overrides: Partial<LocalWorkspaceStore> = {}) {
   return { calls, store };
 }
 
-describe("createSessionPersistenceQueue", () => {
+describe("createWorkspacePersistenceQueue", () => {
   it("ignores session and subtitle saves requested after clear until review content begins", async () => {
     const firstSave = deferred();
     const { calls, store } = memoryStore({
@@ -100,7 +99,7 @@ describe("createSessionPersistenceQueue", () => {
         return { kind: "saved" };
       },
     });
-    const queue = createSessionPersistenceQueue(() => store);
+    const queue = createWorkspacePersistenceQueue(() => store);
 
     const savedBeforeClear = queue.saveSession(session);
     const clear = queue.clearReviewContent();
@@ -141,7 +140,7 @@ describe("createSessionPersistenceQueue", () => {
         return { kind: "saved" };
       },
     });
-    const queue = createSessionPersistenceQueue(() => store);
+    const queue = createWorkspacePersistenceQueue(() => store);
 
     const clearing = queue.clearReviewContent();
     const preferenceSave = queue.savePreferences({ showSpeakerNames: false });
@@ -162,7 +161,7 @@ describe("createSessionPersistenceQueue", () => {
         return { kind: "saved" };
       },
     });
-    const queue = createSessionPersistenceQueue(() => store);
+    const queue = createWorkspacePersistenceQueue(() => store);
     let settled = false;
 
     void queue.saveSubtitleImport(importInput);
@@ -187,7 +186,7 @@ describe("createSessionPersistenceQueue", () => {
           : { kind: "saved" };
       },
     });
-    const queue = createSessionPersistenceQueue(() => store);
+    const queue = createWorkspacePersistenceQueue(() => store);
 
     await expect(queue.clearReviewContent()).resolves.toEqual({
       kind: "unavailable",

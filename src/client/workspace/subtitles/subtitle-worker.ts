@@ -1,8 +1,10 @@
 import { subtitleWorkerRequestSchema } from "./contracts";
 import {
   invalidWorkerMessageResponse,
-  processSubtitleFiles,
+  createSubtitleProcessor,
 } from "./processor";
+
+const processSubtitleFiles = createSubtitleProcessor();
 
 self.addEventListener("message", (event: MessageEvent<unknown>) => {
   const parsed = subtitleWorkerRequestSchema.safeParse(event.data);

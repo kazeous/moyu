@@ -84,8 +84,6 @@ export type LocalWorkspaceResult =
   | Readonly<{
       kind: "available";
       snapshot: LocalWorkspaceSnapshot;
-      /** Temporary compatibility for the existing paste UI until Task 7. */
-      session: ReviewSession | null;
     }>
   | Readonly<{ kind: "empty" }>
   | Readonly<{ kind: "corrupt"; reason: string }>
@@ -94,9 +92,6 @@ export type LocalWorkspaceResult =
 export type LocalWorkspaceSaveResult =
   | Readonly<{ kind: "saved" }>
   | Readonly<{ kind: "unavailable"; reason: string }>;
-
-export type LocalSessionResult = LocalWorkspaceResult;
-export type LocalSessionSaveResult = LocalWorkspaceSaveResult;
 
 export interface LocalWorkspaceStore {
   clearReviewContent(): Promise<LocalWorkspaceSaveResult>;
@@ -108,13 +103,6 @@ export interface LocalWorkspaceStore {
   saveSubtitleImport(
     input: SaveSubtitleImportInput,
   ): Promise<LocalWorkspaceSaveResult>;
-}
-
-export interface LocalSessionStore extends LocalWorkspaceStore {
-  /** Temporary compatibility for the existing paste UI until Task 7. */
-  clear(): Promise<LocalWorkspaceSaveResult>;
-  /** Temporary compatibility for the existing paste UI until Task 7. */
-  save(session: ReviewSession): Promise<LocalWorkspaceSaveResult>;
 }
 
 type RawWorkspaceRecords = Readonly<{
@@ -300,7 +288,7 @@ async function persistMigratedSession(
 
 export function createLocalSessionStore(
   indexedDb: IDBFactory | undefined,
-): LocalSessionStore {
+): LocalWorkspaceStore {
   async function withDatabase<T>(
     operation: (database: IDBDatabase) => Promise<T>,
     fallback: T,
@@ -390,7 +378,7 @@ export function createLocalSessionStore(
         artifacts,
         preferences,
       };
-      return { kind: "available", snapshot, session };
+      return { kind: "available", snapshot };
     }, unavailable("Browser storage is unavailable. Your review content stays on this device."));
   }
 
@@ -562,7 +550,5 @@ export function createLocalSessionStore(
     saveSubtitleImport,
     savePreferences,
     clearReviewContent,
-    save: saveSession,
-    clear: clearReviewContent,
   };
 }

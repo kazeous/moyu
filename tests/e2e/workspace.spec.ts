@@ -4,7 +4,7 @@ async function storedActiveLineId(page: import("@playwright/test").Page) {
   return page.evaluate(
     () =>
       new Promise<string | undefined>((resolve, reject) => {
-        const openRequest = indexedDB.open("moyu-local-review", 1);
+        const openRequest = indexedDB.open("moyu-local-review");
         openRequest.addEventListener("error", () => reject(openRequest.error), {
           once: true,
         });
@@ -118,6 +118,9 @@ test("dialogue import stays local, survives reload, and clears only on confirmat
     }),
   ).toBeVisible();
   await expect(page.locator("article").first()).toContainText(dialogue);
+  await expect(
+    page.getByRole("button", { name: "Review alignment", exact: true }),
+  ).toHaveCount(0);
   await expect(page.locator("article").first()).toContainText(
     "Corrected local reference.",
   );
@@ -315,7 +318,7 @@ test("offers a safe way to clear an unreadable local session", async ({
   await page.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("moyu-local-review", 1);
+        const request = indexedDB.open("moyu-local-review");
         request.addEventListener("error", () => reject(request.error), {
           once: true,
         });
