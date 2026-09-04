@@ -1,6 +1,6 @@
 # moyu
 
-moyu is a hosted Japanese/Chinese dialogue review app with English/Vietnamese references. This foundation implements accounts, password and email magic-link sign-in, and private work tags, phrases/glosses and settings. The browser review workspace, OCR, lexical processing and installable/offline PWA are subsequent work.
+moyu is a hosted Japanese/Chinese dialogue review app with English/Vietnamese references. It implements accounts, password and email magic-link sign-in, private work tags, phrases/glosses and settings, plus a browser-only dialogue workspace. OCR, lexical processing and installable/offline PWA support are subsequent work.
 
 Imported dialogue, reference translations, images, OCR, tokenization, lookup results and selection history belong only in the browser. They must never enter API payloads, PostgreSQL, logs, analytics or error reports. The server stores authentication and personal terminology/settings metadata only; every metadata operation enforces the authenticated owner.
 
@@ -20,6 +20,12 @@ The Compose project defaults to `moyu-foundation`; PostgreSQL listens on `127.0.
 
 The example SMTP settings are development placeholders. Password sign-in works without sending mail; magic links need a configured SMTP server. The browser test harness starts its own local capture server and uses only reserved `example.test` recipients. It does not contact an external email provider.
 
+## Browser-only dialogue review
+
+Open `/workspace` (or follow **Open workspace** from `/`) and paste Japanese or Chinese dialogue. Choose source-only import or alternating source/reference pairs, correct the proposed pairs, then start the review. The original pasted text, corrected pairs, active line and evidence-panel width are stored only in IndexedDB in that browser. Clear session requires confirmation and removes the local IndexedDB record.
+
+The workspace deliberately shows lexical evidence as unavailable until audited browser-local dictionaries and tokenizers are installed. It never invents readings, lemmas, parts of speech or definitions, and it has no translation or remote-AI fallback. Narrow layouts use a compact line navigator and bottom evidence sheet; desktop layouts keep the navigator, continuous review surface and a resizable evidence pane synchronized.
+
 ```powershell
 corepack pnpm format
 corepack pnpm lint
@@ -29,6 +35,7 @@ corepack pnpm test
 Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 corepack pnpm test:e2e
 corepack pnpm build
+corepack pnpm verify:workspace
 ```
 
 Unit/integration tests require the local database to be running and migrated. Readiness tests create and remove an isolated temporary database, so the local test role needs `CREATEDB`. Browser tests reserve app port `3000`, SMTP capture API `3102` and SMTP `3103`; stop any development server first. The production build follows browser tests because Next development regenerates its type paths.
@@ -70,6 +77,8 @@ This release is for a **single application instance**. The in-memory login/regis
 No production VM, domain or SMTP provider is configured by this repository. Local ARM runtime validation and the production configuration checks do not prove a live HTTPS ingress or external mail delivery. Perform those target-specific checks during deployment; automated foundation tests never send external email.
 
 ## Foundation release gate
+
+`corepack pnpm verify:workspace` parses the actual client workspace, server and API source trees. It rejects server imports of browser workspace modules, forbidden review-content fields at API boundaries, workspace imports of server modules, and bare or qualified browser workspace use of `fetch`, `sendBeacon`, `EventSource`, `WebSocket` or `XMLHttpRequest`. It also reruns the exported metadata DTO privacy audit, focused workspace unit tests and workspace browser tests. Run it for every dialogue-workspace release in addition to the gates above.
 
 `corepack pnpm verify:foundation` checks the **actual exported metadata DTO schemas recursively**, rejects forbidden review-content fields, parses a production HTTPS/auth/SMTP environment, validates generated SQL and the live database migration ledger, checks the live health response, then builds `moyu:foundation` for `linux/arm64` and inspects its actual architecture. It fails on any failed check; it does not generate/apply migrations, start an app or send mail for you. Docker must support ARM64 builds (native or emulated).
 
