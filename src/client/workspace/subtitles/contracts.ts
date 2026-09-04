@@ -336,3 +336,67 @@ export type SubtitleImportDraft = Readonly<{
   activeGroupId: string | null;
   blockingFailures: readonly SubtitleProcessingFailure[];
 }>;
+
+export const subtitleWorkerFileSchema = z
+  .object({
+    artifactId: z.string().min(1),
+    format: subtitleFormatSchema,
+    encoding: requestedSubtitleEncodingSchema,
+    bytes: z.instanceof(ArrayBuffer),
+  })
+  .strict();
+export type SubtitleWorkerFile = Readonly<
+  z.infer<typeof subtitleWorkerFileSchema>
+>;
+
+export const subtitleWorkerRequestSchema = z
+  .object({
+    version: z.literal(1),
+    operationId: z.string().min(1),
+    source: subtitleWorkerFileSchema,
+    reference: subtitleWorkerFileSchema.optional(),
+    sourceLanguage: z.enum(["ja", "zh"]),
+    referenceLanguage: z.enum(["en", "vi"]),
+  })
+  .strict();
+export type SubtitleWorkerRequest = Readonly<
+  z.infer<typeof subtitleWorkerRequestSchema>
+>;
+export type ProcessSubtitleRequest = SubtitleWorkerRequest;
+
+export const subtitleProcessedResponseSchema = z
+  .object({
+    version: z.literal(1),
+    operationId: z.string().min(1),
+    kind: z.literal("processed"),
+    draft: subtitleImportDraftSchema,
+  })
+  .strict();
+export type SubtitleProcessedResponse = Readonly<{
+  version: 1;
+  operationId: string;
+  kind: "processed";
+  draft: SubtitleImportDraft;
+}>;
+
+export const subtitleWorkerProcessingErrorResponseSchema = z
+  .object({
+    version: z.literal(1),
+    operationId: z.string().min(1),
+  })
+  .merge(subtitleProcessingFailureSchema)
+  .strict();
+export type SubtitleWorkerProcessingErrorResponse = Readonly<
+  {
+    version: 1;
+    operationId: string;
+  } & SubtitleProcessingFailure
+>;
+
+export const subtitleWorkerResponseSchema = z.discriminatedUnion("kind", [
+  subtitleProcessedResponseSchema,
+  subtitleWorkerProcessingErrorResponseSchema,
+]);
+export type SubtitleWorkerResponse =
+  SubtitleProcessedResponse | SubtitleWorkerProcessingErrorResponse;
+export type ProcessSubtitleResponse = SubtitleWorkerResponse;
