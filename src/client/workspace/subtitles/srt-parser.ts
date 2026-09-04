@@ -17,19 +17,28 @@ function warning(
 }
 
 function splitSrtBlocks(text: string): string[] {
-  const separator = /(?:\r\n){2,}|(?:\n){2,}|(?:\r){2,}/gu;
   const blocks: string[] = [];
   let cursor = 0;
+  const lineEndings = Array.from(text.matchAll(lineEndingPattern));
 
-  for (const match of text.matchAll(separator)) {
-    const delimiter = match[0];
-    const delimiterStart = match.index ?? cursor;
-    const lineEndings = delimiter.match(lineEndingPattern) ?? [];
-    const preserveTrailingLine =
-      lineEndings.length > 2 ? lineEndings.at(-1) : "";
-    const block = text.slice(cursor, delimiterStart) + preserveTrailingLine;
+  for (let index = 0; index < lineEndings.length;) {
+    const runStart = lineEndings[index]?.index;
+    if (runStart === undefined) break;
+
+    let runEnd = runStart;
+    const run: string[] = [];
+    while (index < lineEndings.length) {
+      const match = lineEndings[index];
+      if (!match || match.index !== runEnd) break;
+      run.push(match[0]);
+      runEnd = match.index + match[0].length;
+      index += 1;
+    }
+
+    if (run.length < 2) continue;
+    const block = text.slice(cursor, runStart) + run.slice(0, -2).join("");
     if (block !== "") blocks.push(block);
-    cursor = delimiterStart + delimiter.length;
+    cursor = runEnd;
   }
 
   const finalBlock = text.slice(cursor);
@@ -77,19 +86,17 @@ function parseSrtCue(
   const firstLineIsNumeric = /^\d+$/u.test(lines[0] ?? "");
   const firstLineContainsRange = (lines[0] ?? "").includes("-->");
   const secondLineContainsRange = (lines[1] ?? "").includes("-->");
-  const timingLineIndex =
-    firstLineIsNumeric && lines.length > 1
+  const firstLineIsIndex = firstLineIsNumeric && secondLineContainsRange;
+  const timingLineIndex = firstLineContainsRange
+    ? 0
+    : secondLineContainsRange
       ? 1
-      : firstLineContainsRange
-        ? 0
-        : secondLineContainsRange
-          ? 1
-          : null;
+      : null;
 
   const payloadLines =
     timingLineIndex === null
       ? lines
-      : timingLineIndex === 1 && !firstLineIsNumeric
+      : timingLineIndex === 1 && !firstLineIsIndex
         ? [lines[0] ?? "", ...lines.slice(2)]
         : lines.slice(timingLineIndex + 1);
   const derived = deriveSrtVisibleText(payloadLines.join("\n"));

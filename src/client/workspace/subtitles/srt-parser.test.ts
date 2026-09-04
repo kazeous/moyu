@@ -40,7 +40,7 @@ describe("parseSrt", () => {
   it("retains malformed timing and unknown markup with warnings", () => {
     const result = parseSrt({
       artifactId: "source-1",
-      text: "1\nnot-a-time\n<ruby>原文</ruby>",
+      text: "1\nnot-a-time --> still-not-a-time\n<ruby>原文</ruby>",
     });
 
     expect(result).toMatchObject({
@@ -81,6 +81,48 @@ describe("parseSrt", () => {
     });
   });
 
+  it("splits mixed line-ending blank separators without orphaning bytes", () => {
+    const result = parseSrt({
+      artifactId: "source-1",
+      text: "00:00:00,000 --> 00:00:01,000\nfirst\n\r\n00:00:02,000 --> 00:00:03,000\r\nsecond",
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [
+        {
+          rawPayload: "00:00:00,000 --> 00:00:01,000\nfirst",
+          visibleText: "first",
+        },
+        {
+          rawPayload: "00:00:02,000 --> 00:00:03,000\r\nsecond",
+          visibleText: "second",
+        },
+      ],
+    });
+  });
+
+  it("retains every extra line ending in a long blank run", () => {
+    const result = parseSrt({
+      artifactId: "source-1",
+      text: "00:00:00,000 --> 00:00:01,000\r\nfirst\r\n\n\r\n\r\n00:00:02,000 --> 00:00:03,000\r\nsecond",
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [
+        {
+          rawPayload: "00:00:00,000 --> 00:00:01,000\r\nfirst\r\n\n",
+          visibleText: "first\n\n",
+        },
+        {
+          rawPayload: "00:00:02,000 --> 00:00:03,000\r\nsecond",
+          visibleText: "second",
+        },
+      ],
+    });
+  });
+
   it("keeps a non-numeric cue label visible and retains a terminal cue", () => {
     const result = parseSrt({
       artifactId: "source-1",
@@ -97,6 +139,25 @@ describe("parseSrt", () => {
         },
       ],
     });
+  });
+
+  it("preserves numeric dialogue text when it is not followed by a timestamp", () => {
+    const result = parseSrt({
+      artifactId: "source-1",
+      text: "1984\nChapter title",
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [
+        {
+          startMs: null,
+          endMs: null,
+          visibleText: "1984\nChapter title",
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).toContain("missing-timestamp");
   });
 
   it("keeps reversed ranges as nullable timing with an explicit warning", () => {
