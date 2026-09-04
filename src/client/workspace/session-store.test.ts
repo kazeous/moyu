@@ -9,6 +9,7 @@ import {
 import type {
   SubtitleArtifact,
   SubtitleCue,
+  SubtitleImportDraft,
   SubtitleProcessingFailure,
 } from "./subtitles/contracts";
 import { createSubtitleImportDraft, keepSourceOnly } from "./subtitles/draft";
@@ -184,9 +185,9 @@ function cue(
   };
 }
 
-function usableDraftFor(sourceArtifactId: string) {
+function usableDraftFor(sourceArtifactId: string, importId = "import-1") {
   const draft = createSubtitleImportDraft({
-    id: "import-1",
+    id: importId,
     sourceArtifactId,
     sourceLanguage: "ja",
     referenceLanguage: "en",
@@ -194,6 +195,29 @@ function usableDraftFor(sourceArtifactId: string) {
     referenceCues: [],
   });
   return keepSourceOnly(draft, draft.groups[0].id);
+}
+
+function importRecordWithReference(
+  sourceArtifactId: string,
+  referenceArtifactId: string,
+): PersistedSubtitleImport {
+  const draft = createSubtitleImportDraft({
+    id: "import-1",
+    sourceArtifactId,
+    referenceArtifactId,
+    sourceLanguage: "ja",
+    referenceLanguage: "en",
+    sourceCues: [cue("s1", sourceArtifactId, "source")],
+    referenceCues: [cue("r1", referenceArtifactId, "reference")],
+  });
+  return {
+    version: 1,
+    id: "import-1",
+    source: { artifactId: sourceArtifactId, language: "ja" },
+    reference: { artifactId: referenceArtifactId, language: "en" },
+    draft,
+    failure: null,
+  };
 }
 
 function importRecord(
@@ -387,6 +411,24 @@ describe("createLocalSessionStore", () => {
     ]);
   });
 
+  it("rejects an artifact listed for both put and delete without committing a dangling import", async () => {
+    const indexedDb = new IDBFactory();
+    const sourceArtifact = artifact("source", "source");
+    const store = createLocalSessionStore(indexedDb);
+
+    await expect(
+      store.saveSubtitleImport({
+        importState: importRecord(sourceArtifact.id),
+        putArtifacts: [sourceArtifact],
+        deleteArtifactIds: [sourceArtifact.id],
+      }),
+    ).resolves.toMatchObject({ kind: "unavailable" });
+    const snapshot = availableSnapshot(await store.load());
+    expect(snapshot.subtitleImport).toBeNull();
+    expect(snapshot.artifacts).toEqual([]);
+    await expect(readArtifactKeys(indexedDb)).resolves.toEqual([]);
+  });
+
   it("aborts an invalid replacement transaction and leaves the prior state intact", async () => {
     const indexedDb = new IDBFactory();
     const previousArtifact = artifact("previous-source", "source");
@@ -445,6 +487,122 @@ describe("createLocalSessionStore", () => {
     });
   });
 
+  it("returns corrupt when raw persisted source cues reference a different artifact", async () => {
+    const indexedDb = new IDBFactory();
+    const sourceArtifact = artifact("source", "source");
+    const validImport = importRecord(sourceArtifact.id);
+    const invalidImport = {
+      ...validImport,
+      draft: {
+        ...validImport.draft,
+        sourceCues: validImport.draft?.sourceCues.map((sourceCue) => ({
+          ...sourceCue,
+          artifactId: "unpersisted-source",
+        })),
+      },
+    } as unknown as PersistedSubtitleImport;
+    await putRawValue(
+      indexedDb,
+      2,
+      "subtitle-artifacts",
+      sourceArtifact.id,
+      sourceArtifact,
+    );
+    await putRawValue(
+      indexedDb,
+      2,
+      "subtitle-imports",
+      "current",
+      invalidImport,
+    );
+
+    await expect(createLocalSessionStore(indexedDb).load()).resolves.toEqual({
+      kind: "corrupt",
+      reason: "The saved local subtitle import cannot be read safely.",
+    });
+  });
+
+  it("rejects public saves whose source cues reference a different artifact", async () => {
+    const indexedDb = new IDBFactory();
+    const sourceArtifact = artifact("source", "source");
+    const validImport = importRecord(sourceArtifact.id);
+    const invalidImport = {
+      ...validImport,
+      draft: {
+        ...validImport.draft,
+        sourceCues: validImport.draft?.sourceCues.map((sourceCue) => ({
+          ...sourceCue,
+          artifactId: "unpersisted-source",
+        })),
+      },
+    } as unknown as PersistedSubtitleImport;
+    const store = createLocalSessionStore(indexedDb);
+
+    await expect(
+      store.saveSubtitleImport({
+        importState: invalidImport,
+        putArtifacts: [sourceArtifact],
+        deleteArtifactIds: [],
+      }),
+    ).resolves.toMatchObject({ kind: "unavailable" });
+    expect(availableSnapshot(await store.load()).subtitleImport).toBeNull();
+  });
+
+  it("rejects public saves whose reference cues use the wrong draft artifact", async () => {
+    const indexedDb = new IDBFactory();
+    const sourceArtifact = artifact("source", "source");
+    const referenceArtifact = artifact("reference", "reference");
+    const validImport = importRecordWithReference(
+      sourceArtifact.id,
+      referenceArtifact.id,
+    );
+    const invalidImport = {
+      ...validImport,
+      draft: {
+        ...validImport.draft,
+        referenceCues: validImport.draft?.referenceCues.map((referenceCue) => ({
+          ...referenceCue,
+          artifactId: "unpersisted-reference",
+        })),
+      },
+    } as unknown as PersistedSubtitleImport;
+    const store = createLocalSessionStore(indexedDb);
+
+    await expect(
+      store.saveSubtitleImport({
+        importState: invalidImport,
+        putArtifacts: [sourceArtifact, referenceArtifact],
+        deleteArtifactIds: [],
+      }),
+    ).resolves.toMatchObject({ kind: "unavailable" });
+    expect(availableSnapshot(await store.load()).subtitleImport).toBeNull();
+  });
+
+  it("rejects reference cues when a retained draft has no reference artifact", async () => {
+    const indexedDb = new IDBFactory();
+    const sourceArtifact = artifact("source", "source");
+    const validImport = importRecord(sourceArtifact.id);
+    const invalidDraft = {
+      ...validImport.draft,
+      referenceCues: [cue("r1", "unpersisted-reference", "reference")],
+      unassignedReferenceCueIds: ["r1"],
+    } as unknown as SubtitleImportDraft;
+    const invalidImport = {
+      ...validImport,
+      draft: invalidDraft,
+    } as PersistedSubtitleImport;
+    const store = createLocalSessionStore(indexedDb);
+
+    await expect(
+      store.saveSubtitleImport({
+        importState: invalidImport,
+        putArtifacts: [sourceArtifact],
+        deleteArtifactIds: [],
+      }),
+    ).resolves.toMatchObject({ kind: "unavailable" });
+    expect(availableSnapshot(await store.load()).subtitleImport).toBeNull();
+  });
+
   it("returns corrupt when a subtitle session has no matching persisted import", async () => {
     const indexedDb = new IDBFactory();
     await putRawValue(indexedDb, 2, "sessions", "active", {
@@ -456,6 +614,62 @@ describe("createLocalSessionStore", () => {
       kind: "corrupt",
       reason: "The saved local subtitle import cannot be read safely.",
     });
+  });
+
+  it("rejects saving a subtitle session without its matching persisted import", async () => {
+    const indexedDb = new IDBFactory();
+    const store = createLocalSessionStore(indexedDb);
+    const subtitleSession: ReviewSession = {
+      ...pasteSession,
+      origin: { kind: "subtitle", importId: "missing-import" },
+    };
+
+    await expect(store.saveSession(subtitleSession)).resolves.toMatchObject({
+      kind: "unavailable",
+    });
+    expect(availableSnapshot(await store.load()).session).toBeNull();
+  });
+
+  it("rejects replacing the import behind an active subtitle session and preserves prior state", async () => {
+    const indexedDb = new IDBFactory();
+    const previousArtifact = artifact("previous-source", "source");
+    const replacementArtifact = artifact("replacement-source", "source");
+    const previousImport = importRecord(previousArtifact.id);
+    const replacementImport = importRecord(replacementArtifact.id, {
+      id: "import-2",
+      draft: usableDraftFor(replacementArtifact.id, "import-2"),
+    });
+    const subtitleSession: ReviewSession = {
+      ...pasteSession,
+      origin: { kind: "subtitle", importId: previousImport.id },
+    };
+    const store = createLocalSessionStore(indexedDb);
+    await store.saveSubtitleImport({
+      importState: previousImport,
+      putArtifacts: [previousArtifact],
+      deleteArtifactIds: [],
+    });
+    await expect(store.saveSession(subtitleSession)).resolves.toEqual({
+      kind: "saved",
+    });
+
+    await expect(
+      store.saveSubtitleImport({
+        importState: replacementImport,
+        putArtifacts: [replacementArtifact],
+        deleteArtifactIds: [previousArtifact.id],
+      }),
+    ).resolves.toMatchObject({ kind: "unavailable" });
+
+    const snapshot = availableSnapshot(await store.load());
+    expect(snapshot.session).toEqual(subtitleSession);
+    expect(snapshot.subtitleImport).toEqual(previousImport);
+    expect(snapshot.artifacts.map((item) => item.id)).toEqual([
+      previousArtifact.id,
+    ]);
+    await expect(readArtifactKeys(indexedDb)).resolves.toEqual([
+      previousArtifact.id,
+    ]);
   });
 
   it("rejects an artifact whose role disagrees with its selected slot", async () => {
@@ -478,6 +692,40 @@ describe("createLocalSessionStore", () => {
     expect(result).toMatchObject({
       kind: "available",
       snapshot: { preferences: { showSpeakerNames: true } },
+    });
+  });
+
+  it("recovers malformed preferences to defaults across review-content Clear", async () => {
+    const indexedDb = new IDBFactory();
+    await putRawValue(indexedDb, 2, "sessions", "active", pasteSession);
+    await putRawValue(indexedDb, 2, "preferences", "workspace", {
+      showSpeakerNames: "not-a-boolean",
+    });
+    const store = createLocalSessionStore(indexedDb);
+
+    await expect(store.load()).resolves.toMatchObject({
+      kind: "available",
+      snapshot: {
+        session: pasteSession,
+        preferences: { showSpeakerNames: true },
+      },
+    });
+    await expect(store.clearReviewContent()).resolves.toEqual({
+      kind: "saved",
+    });
+    await expect(store.load()).resolves.toMatchObject({
+      kind: "available",
+      snapshot: {
+        session: null,
+        preferences: { showSpeakerNames: true },
+      },
+    });
+    await expect(
+      store.savePreferences({ showSpeakerNames: false }),
+    ).resolves.toEqual({ kind: "saved" });
+    await expect(store.load()).resolves.toMatchObject({
+      kind: "available",
+      snapshot: { preferences: { showSpeakerNames: false } },
     });
   });
 

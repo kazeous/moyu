@@ -57,6 +57,15 @@ export const saveSubtitleImportInputSchema = z
         message: "Each subtitle artifact can only be deleted once.",
       });
     }
+    const deletedIds = new Set(input.deleteArtifactIds);
+    if (putIds.some((artifactId) => deletedIds.has(artifactId))) {
+      context.addIssue({
+        code: "custom",
+        path: ["deleteArtifactIds"],
+        message:
+          "A subtitle artifact cannot be written and deleted in the same save.",
+      });
+    }
   });
 export type SaveSubtitleImportInput = Readonly<{
   importState: PersistedSubtitleImport;
@@ -368,21 +377,18 @@ export function createLocalSessionStore(
         );
       }
 
-      const parsedPreferences =
-        records.preferences === undefined
-          ? workspacePreferencesSchema.safeParse({ showSpeakerNames: true })
-          : workspacePreferencesSchema.safeParse(records.preferences);
-      if (!parsedPreferences.success) {
-        return corrupt(
-          "The saved local workspace preferences cannot be read safely.",
-        );
-      }
+      const parsedPreferences = workspacePreferencesSchema.safeParse(
+        records.preferences,
+      );
+      const preferences = parsedPreferences.success
+        ? parsedPreferences.data
+        : { showSpeakerNames: true };
 
       const snapshot: LocalWorkspaceSnapshot = {
         session,
         subtitleImport,
         artifacts,
-        preferences: parsedPreferences.data,
+        preferences,
       };
       return { kind: "available", snapshot, session };
     }, unavailable("Browser storage is unavailable. Your review content stays on this device."));
@@ -399,11 +405,34 @@ export function createLocalSessionStore(
     }
 
     return withDatabase<LocalWorkspaceSaveResult>(async (database) => {
-      const transaction = database.transaction(SESSION_STORE, "readwrite");
+      const transaction = database.transaction(
+        [SESSION_STORE, SUBTITLE_IMPORT_STORE],
+        "readwrite",
+      );
+      const completed = transactionResult(transaction);
+      if (parsed.data.origin.kind === "subtitle") {
+        const importValue = await requestResult(
+          transaction
+            .objectStore(SUBTITLE_IMPORT_STORE)
+            .get(CURRENT_SUBTITLE_IMPORT_KEY),
+        );
+        const persistedImport =
+          persistedSubtitleImportSchema.safeParse(importValue);
+        if (
+          !persistedImport.success ||
+          persistedImport.data.id !== parsed.data.origin.importId
+        ) {
+          transaction.abort();
+          await completed.catch(() => undefined);
+          return unavailable(
+            "The subtitle review session has no matching local import and was not saved.",
+          );
+        }
+      }
       transaction
         .objectStore(SESSION_STORE)
         .put(parsed.data, ACTIVE_SESSION_KEY);
-      await transactionResult(transaction);
+      await completed;
       return { kind: "saved" };
     }, unavailable("Browser storage is unavailable. Your review content stays on this device."));
   }
@@ -420,10 +449,13 @@ export function createLocalSessionStore(
 
     return withDatabase<LocalWorkspaceSaveResult>(async (database) => {
       const transaction = database.transaction(
-        [SUBTITLE_IMPORT_STORE, SUBTITLE_ARTIFACT_STORE],
+        [SESSION_STORE, SUBTITLE_IMPORT_STORE, SUBTITLE_ARTIFACT_STORE],
         "readwrite",
       );
       const completed = transactionResult(transaction);
+      const sessionRequest = transaction
+        .objectStore(SESSION_STORE)
+        .get(ACTIVE_SESSION_KEY);
       const artifactStore = transaction.objectStore(SUBTITLE_ARTIFACT_STORE);
       const putArtifacts = new Map(
         parsed.data.putArtifacts.map((artifact) => [artifact.id, artifact]),
@@ -435,11 +467,29 @@ export function createLocalSessionStore(
         (artifactId) =>
           !putArtifacts.has(artifactId) && !deletedArtifactIds.has(artifactId),
       );
-      const storedArtifacts = await Promise.all(
-        storedArtifactIds.map((artifactId) =>
-          requestResult(artifactStore.get(artifactId)),
+      const [activeSessionValue, storedArtifacts] = await Promise.all([
+        requestResult(sessionRequest),
+        Promise.all(
+          storedArtifactIds.map((artifactId) =>
+            requestResult(artifactStore.get(artifactId)),
+          ),
         ),
-      );
+      ]);
+      if (activeSessionValue !== undefined) {
+        const activeSession = migrateReviewSession(activeSessionValue);
+        if (
+          activeSession.kind === "invalid" ||
+          (activeSession.session.origin.kind === "subtitle" &&
+            activeSession.session.origin.importId !==
+              parsed.data.importState.id)
+        ) {
+          transaction.abort();
+          await completed.catch(() => undefined);
+          return unavailable(
+            "The local subtitle import does not match the active review session and was not saved.",
+          );
+        }
+      }
       const resultingArtifacts = new Map<string, unknown>(putArtifacts);
       storedArtifactIds.forEach((artifactId, index) => {
         resultingArtifacts.set(artifactId, storedArtifacts[index]);

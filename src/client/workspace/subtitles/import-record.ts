@@ -44,6 +44,43 @@ export const persistedSubtitleImportSchema = z
     failure: subtitleProcessingFailureSchema.nullable(),
   })
   .strict()
+  .superRefine((record, context) => {
+    const draft = record.draft;
+    if (!draft) return;
+
+    draft.sourceCues.forEach((cue, index) => {
+      if (cue.artifactId !== draft.sourceArtifactId) {
+        context.addIssue({
+          code: "custom",
+          path: ["draft", "sourceCues", index, "artifactId"],
+          message: "Every source cue must reference the draft source artifact.",
+        });
+      }
+    });
+
+    if (draft.referenceArtifactId === undefined) {
+      if (draft.referenceCues.length > 0) {
+        context.addIssue({
+          code: "custom",
+          path: ["draft", "referenceCues"],
+          message:
+            "A source-only draft cannot contain reference subtitle cues.",
+        });
+      }
+      return;
+    }
+
+    draft.referenceCues.forEach((cue, index) => {
+      if (cue.artifactId !== draft.referenceArtifactId) {
+        context.addIssue({
+          code: "custom",
+          path: ["draft", "referenceCues", index, "artifactId"],
+          message:
+            "Every reference cue must reference the draft reference artifact.",
+        });
+      }
+    });
+  })
   .transform(
     (record): PersistedSubtitleImport =>
       record as unknown as PersistedSubtitleImport,
