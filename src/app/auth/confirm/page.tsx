@@ -3,7 +3,7 @@ import { ConfirmForm } from "@/client/auth/confirm-form";
 
 export default function ConfirmPage() {
   return (
-    <main>
+    <main className="site-shell">
       <Link href="/">moyu</Link>
       <h1>Confirm sign in</h1>
       <ConfirmForm />

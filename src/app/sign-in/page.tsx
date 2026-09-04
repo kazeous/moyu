@@ -3,7 +3,7 @@ import { AuthForm } from "@/client/auth/auth-form";
 
 export default function SignInPage() {
   return (
-    <main>
+    <main className="site-shell">
       <Link href="/">moyu</Link>
       <h1>Sign in</h1>
       <AuthForm mode="sign-in" />
