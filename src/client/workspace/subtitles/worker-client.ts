@@ -2,16 +2,30 @@ import {
   type ProcessSubtitleResponse,
   type SubtitleWorkerRequest,
   subtitleWorkerRequestSchema,
+  subtitleWorkerResponseEnvelopeSchema,
   subtitleWorkerResponseSchema,
 } from "./contracts";
-import { invalidWorkerMessageResponse } from "./processor";
+import { validateCueConservation } from "./draft";
+import {
+  invalidWorkerMessageResponse,
+  unexpectedWorkerFailureResponse,
+} from "./processor";
 
 type MessageListener = (event: MessageEvent<unknown>) => void;
+type FailureListener = (event: Event) => void;
 
 export type SubtitleWorkerPort = Readonly<{
   postMessage(message: unknown, transfer: Transferable[]): void;
   addEventListener(type: "message", listener: MessageListener): void;
+  addEventListener(
+    type: "error" | "messageerror",
+    listener: FailureListener,
+  ): void;
   removeEventListener(type: "message", listener: MessageListener): void;
+  removeEventListener(
+    type: "error" | "messageerror",
+    listener: FailureListener,
+  ): void;
   terminate(): void;
 }>;
 
@@ -54,6 +68,17 @@ function transferList(request: SubtitleWorkerRequest): Transferable[] {
   return [...new Set(buffers)];
 }
 
+function responseEnvelope(value: unknown) {
+  if (typeof value !== "object" || value === null) {
+    return subtitleWorkerResponseEnvelopeSchema.safeParse(value);
+  }
+  const message = value as { version?: unknown; operationId?: unknown };
+  return subtitleWorkerResponseEnvelopeSchema.safeParse({
+    version: message.version,
+    operationId: message.operationId,
+  });
+}
+
 export function createSubtitleWorkerClient(
   factory: SubtitleWorkerFactory = defaultWorkerFactory,
 ): SubtitleWorkerClient {
@@ -62,27 +87,56 @@ export function createSubtitleWorkerClient(
   let latestOperationId: string | null = null;
   let disposed = false;
 
-  const settleInvalidWorkerMessage = () => {
-    if (latestOperationId === null) return;
-    const current = pending.get(latestOperationId);
-    if (current === undefined) return;
-    pending.delete(latestOperationId);
-    current.resolve(invalidWorkerMessageResponse(latestOperationId));
+  const settleOperation = (
+    operationId: string,
+    response: ProcessSubtitleResponse,
+  ) => {
+    const operation = pending.get(operationId);
+    if (operation === undefined) return;
+    pending.delete(operationId);
+    if (operationId === latestOperationId) latestOperationId = null;
+    operation.resolve(response);
+  };
+
+  const settleWorkerFailure = () => {
+    for (const operationId of pending.keys()) {
+      settleOperation(
+        operationId,
+        unexpectedWorkerFailureResponse(operationId),
+      );
+    }
   };
 
   const onMessage: MessageListener = (event) => {
+    const envelope = responseEnvelope(event.data);
+    if (!envelope.success || !pending.has(envelope.data.operationId)) return;
+
     const parsed = subtitleWorkerResponseSchema.safeParse(event.data);
     if (!parsed.success) {
-      settleInvalidWorkerMessage();
+      settleOperation(
+        envelope.data.operationId,
+        invalidWorkerMessageResponse(envelope.data.operationId),
+      );
       return;
     }
-    const current = pending.get(parsed.data.operationId);
-    if (current === undefined) return;
-    pending.delete(parsed.data.operationId);
-    current.resolve(parsed.data as unknown as ProcessSubtitleResponse);
+    const response = parsed.data as unknown as ProcessSubtitleResponse;
+    if (
+      response.kind === "processed" &&
+      validateCueConservation(response.draft).kind === "invalid"
+    ) {
+      settleOperation(
+        envelope.data.operationId,
+        invalidWorkerMessageResponse(envelope.data.operationId),
+      );
+      return;
+    }
+    settleOperation(envelope.data.operationId, response);
   };
+  const onWorkerFailure: FailureListener = () => settleWorkerFailure();
 
   worker.addEventListener("message", onMessage);
+  worker.addEventListener("error", onWorkerFailure);
+  worker.addEventListener("messageerror", onWorkerFailure);
 
   const supersedePending = () => {
     for (const [operationId, operation] of pending) {
@@ -108,7 +162,14 @@ export function createSubtitleWorkerClient(
       resolve = next;
     });
     pending.set(parsed.data.operationId, { promise, resolve });
-    worker.postMessage(parsed.data, transferList(parsed.data));
+    try {
+      worker.postMessage(parsed.data, transferList(parsed.data));
+    } catch {
+      settleOperation(
+        parsed.data.operationId,
+        unexpectedWorkerFailureResponse(parsed.data.operationId),
+      );
+    }
     return promise;
   };
 
@@ -123,6 +184,8 @@ export function createSubtitleWorkerClient(
       if (disposed) return;
       disposed = true;
       worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onWorkerFailure);
+      worker.removeEventListener("messageerror", onWorkerFailure);
       for (const [operationId, operation] of pending) {
         pending.delete(operationId);
         operation.resolve({ kind: "disposed", operationId });

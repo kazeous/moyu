@@ -364,6 +364,16 @@ export type SubtitleWorkerRequest = Readonly<
 >;
 export type ProcessSubtitleRequest = SubtitleWorkerRequest;
 
+export const subtitleWorkerResponseEnvelopeSchema = z
+  .object({
+    version: z.literal(1),
+    operationId: z.string().min(1),
+  })
+  .strict();
+export type SubtitleWorkerResponseEnvelope = Readonly<
+  z.infer<typeof subtitleWorkerResponseEnvelopeSchema>
+>;
+
 export const subtitleProcessedResponseSchema = z
   .object({
     version: z.literal(1),

@@ -6,22 +6,52 @@ import type {
 import { createSubtitleWorkerClient } from "./worker-client";
 
 type MessageListener = (event: MessageEvent<unknown>) => void;
+type FailureListener = (event: Event) => void;
 
 class FakeWorker {
   readonly posts: Array<{ message: unknown; transfer: Transferable[] }> = [];
   terminated = false;
-  private readonly listeners = new Set<MessageListener>();
+  throwOnPost = false;
+  private readonly messageListeners = new Set<MessageListener>();
+  private readonly errorListeners = new Set<FailureListener>();
+  private readonly messageErrorListeners = new Set<FailureListener>();
 
   postMessage(message: unknown, transfer: Transferable[] = []) {
+    if (this.throwOnPost) throw new Error("private postMessage failure");
     this.posts.push({ message, transfer });
   }
 
-  addEventListener(type: "message", listener: MessageListener) {
-    if (type === "message") this.listeners.add(listener);
+  addEventListener(type: "message", listener: MessageListener): void;
+  addEventListener(
+    type: "error" | "messageerror",
+    listener: FailureListener,
+  ): void;
+  addEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: MessageListener | FailureListener,
+  ) {
+    if (type === "message")
+      this.messageListeners.add(listener as MessageListener);
+    if (type === "error") this.errorListeners.add(listener as FailureListener);
+    if (type === "messageerror")
+      this.messageErrorListeners.add(listener as FailureListener);
   }
 
-  removeEventListener(type: "message", listener: MessageListener) {
-    if (type === "message") this.listeners.delete(listener);
+  removeEventListener(type: "message", listener: MessageListener): void;
+  removeEventListener(
+    type: "error" | "messageerror",
+    listener: FailureListener,
+  ): void;
+  removeEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: MessageListener | FailureListener,
+  ) {
+    if (type === "message")
+      this.messageListeners.delete(listener as MessageListener);
+    if (type === "error")
+      this.errorListeners.delete(listener as FailureListener);
+    if (type === "messageerror")
+      this.messageErrorListeners.delete(listener as FailureListener);
   }
 
   terminate() {
@@ -29,9 +59,27 @@ class FakeWorker {
   }
 
   respond(message: unknown) {
-    for (const listener of this.listeners) {
+    for (const listener of this.messageListeners) {
       listener({ data: message } as MessageEvent<unknown>);
     }
+  }
+
+  fail(type: "error" | "messageerror") {
+    const listeners =
+      type === "error" ? this.errorListeners : this.messageErrorListeners;
+    for (const listener of listeners) {
+      listener({ privateMessage: "do not expose this" } as unknown as Event);
+    }
+  }
+
+  listenerCount(type: "message" | "error" | "messageerror") {
+    return (
+      type === "message"
+        ? this.messageListeners
+        : type === "error"
+          ? this.errorListeners
+          : this.messageErrorListeners
+    ).size;
   }
 }
 
@@ -56,7 +104,9 @@ function request(operationId: string): ProcessSubtitleRequest {
   };
 }
 
-function response(operationId: string): SubtitleWorkerResponse {
+function response(
+  operationId: string,
+): Extract<SubtitleWorkerResponse, { kind: "processed" }> {
   return {
     version: 1,
     operationId,
@@ -151,7 +201,11 @@ describe("createSubtitleWorkerClient", () => {
     const fake = new FakeWorker();
     const client = createSubtitleWorkerClient(() => fake);
     const pending = client.process(request("one"));
-    fake.respond({ operationId: "one", privateText: "do not expose this" });
+    fake.respond({
+      version: 1,
+      operationId: "one",
+      privateText: "do not expose this",
+    });
 
     await expect(pending).resolves.toMatchObject({
       kind: "processing-error",
@@ -159,5 +213,125 @@ describe("createSubtitleWorkerClient", () => {
       code: "invalid-worker-message",
     });
     await expect(pending).resolves.not.toHaveProperty("privateText");
+  });
+
+  it("ignores a malformed late response for a superseded operation", async () => {
+    const fake = new FakeWorker();
+    const client = createSubtitleWorkerClient(() => fake);
+    const old = client.process(request("old"));
+    const current = client.process(request("current"));
+
+    fake.respond({ version: 1, operationId: "old", kind: "processed" });
+    await expect(old).resolves.toEqual({
+      kind: "superseded",
+      operationId: "old",
+    });
+    fake.respond(response("current"));
+
+    await expect(current).resolves.toMatchObject({
+      kind: "processed",
+      operationId: "current",
+    });
+  });
+
+  it("ignores a response for an unknown operation", async () => {
+    const fake = new FakeWorker();
+    const client = createSubtitleWorkerClient(() => fake);
+    const pending = client.process(request("current"));
+
+    fake.respond(response("unknown"));
+    fake.respond(response("current"));
+
+    await expect(pending).resolves.toMatchObject({
+      kind: "processed",
+      operationId: "current",
+    });
+  });
+
+  it("settles only the matching operation for malformed worker output", async () => {
+    const fake = new FakeWorker();
+    const client = createSubtitleWorkerClient(() => fake);
+    const pending = client.process(request("current"));
+
+    fake.respond({ version: 1, operationId: "current", kind: "processed" });
+
+    await expect(pending).resolves.toMatchObject({
+      kind: "processing-error",
+      operationId: "current",
+      code: "invalid-worker-message",
+    });
+  });
+
+  it.each(["error", "messageerror"] as const)(
+    "settles pending work after a worker %s event",
+    async (type) => {
+      const fake = new FakeWorker();
+      const client = createSubtitleWorkerClient(() => fake);
+      const pending = client.process(request("current"));
+
+      fake.fail(type);
+
+      await expect(pending).resolves.toMatchObject({
+        kind: "processing-error",
+        operationId: "current",
+        code: "unexpected-error",
+        retryable: true,
+      });
+      await expect(client.settle()).resolves.toBeUndefined();
+    },
+  );
+
+  it("removes every worker listener on dispose", () => {
+    const fake = new FakeWorker();
+    const client = createSubtitleWorkerClient(() => fake);
+
+    client.dispose();
+
+    expect(fake.listenerCount("message")).toBe(0);
+    expect(fake.listenerCount("error")).toBe(0);
+    expect(fake.listenerCount("messageerror")).toBe(0);
+  });
+
+  it("settles a synchronous postMessage failure without exposing its error", async () => {
+    const fake = new FakeWorker();
+    fake.throwOnPost = true;
+    const client = createSubtitleWorkerClient(() => fake);
+
+    const result = await client.process(request("current"));
+
+    expect(result).toMatchObject({
+      kind: "processing-error",
+      operationId: "current",
+      code: "unexpected-error",
+      retryable: true,
+    });
+    expect(JSON.stringify(result)).not.toContain("private postMessage failure");
+    await expect(client.settle()).resolves.toBeUndefined();
+  });
+
+  it("rejects a schema-valid response that fails cue conservation", async () => {
+    const fake = new FakeWorker();
+    const client = createSubtitleWorkerClient(() => fake);
+    const pending = client.process(request("current"));
+    const valid = response("current");
+
+    fake.respond({
+      ...valid,
+      draft: {
+        ...valid.draft,
+        groups: [
+          {
+            ...valid.draft.groups[0],
+            sourceCueIds: ["missing-source-cue"],
+          },
+        ],
+      },
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      kind: "processing-error",
+      operationId: "current",
+      code: "invalid-worker-message",
+    });
   });
 });

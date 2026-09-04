@@ -61,6 +61,12 @@ function unexpectedError(operationId: string): ProcessSubtitleResponse {
   };
 }
 
+export function unexpectedWorkerFailureResponse(
+  operationId: string,
+): ProcessSubtitleResponse {
+  return validatedResponse(unexpectedError(operationId));
+}
+
 export function invalidWorkerMessageResponse(
   operationId = INVALID_OPERATION_ID,
 ): ProcessSubtitleResponse {
