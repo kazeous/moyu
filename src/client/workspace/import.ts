@@ -4,6 +4,11 @@ import {
   type ReviewSession,
   type SourceLanguage,
 } from "./model";
+import type { SubtitleImportDraft } from "./subtitles/contracts";
+import {
+  createReviewLinesFromSubtitleDraft,
+  isSubtitleDraftReady,
+} from "./subtitles/draft";
 
 export type ImportMode = "source-only" | "alternating";
 export type ImportModeSuggestion = Readonly<{
@@ -18,6 +23,10 @@ export type PreparedImport = {
 };
 
 export type ImportedReviewLine = { source: string; reference?: string };
+
+export type SubtitleReviewSessionResult =
+  | Readonly<{ kind: "created"; session: ReviewSession }>
+  | Readonly<{ kind: "not-ready"; reason: string }>;
 
 const sourceScriptPattern =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
@@ -121,12 +130,37 @@ export function createReviewSessionFromLines(
   }));
 
   return reviewSessionSchema.parse({
-    version: 1,
+    version: 2,
     sourceLanguage,
     referenceLanguage,
-    rawImportText,
+    origin: { kind: "paste", rawImportText },
     lines,
     activeLineId: lines[0]?.id ?? null,
     evidencePanelWidth: 360,
   });
+}
+
+export function createSubtitleReviewSession(
+  draft: SubtitleImportDraft,
+  evidencePanelWidth = 360,
+): SubtitleReviewSessionResult {
+  if (!isSubtitleDraftReady(draft)) {
+    return {
+      kind: "not-ready",
+      reason: "Subtitle alignment is not ready for review.",
+    };
+  }
+
+  const lines = createReviewLinesFromSubtitleDraft(draft);
+  const session = reviewSessionSchema.parse({
+    version: 2,
+    sourceLanguage: draft.sourceLanguage,
+    referenceLanguage: draft.referenceLanguage,
+    origin: { kind: "subtitle", importId: draft.id },
+    lines,
+    activeLineId: lines[0]?.id ?? null,
+    evidencePanelWidth: Math.min(720, Math.max(280, evidencePanelWidth)),
+  });
+
+  return { kind: "created", session };
 }

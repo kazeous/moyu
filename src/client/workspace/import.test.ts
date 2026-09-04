@@ -3,9 +3,66 @@ import { describe, expect, it } from "vitest";
 import {
   createReviewSessionFromLines,
   createReviewSession,
+  createSubtitleReviewSession,
   prepareImport,
   suggestImportMode,
 } from "./import";
+import type { SubtitleCue } from "./subtitles/contracts";
+import {
+  acceptAlignmentGroup,
+  createSubtitleImportDraft,
+} from "./subtitles/draft";
+
+function subtitleCue(
+  id: string,
+  artifactId: string,
+  sourceOrder: number,
+  startMs: number,
+  endMs: number,
+  speaker?: string,
+): SubtitleCue {
+  return {
+    id,
+    artifactId,
+    sourceOrder,
+    startMs,
+    endMs,
+    rawPayload: `raw:${id}`,
+    visibleText: `text:${id}`,
+    ...(speaker === undefined ? {} : { speaker }),
+    warnings: [],
+  };
+}
+
+function readySubtitleDraft() {
+  const draft = createSubtitleImportDraft({
+    id: "import-1",
+    sourceArtifactId: "source",
+    referenceArtifactId: "reference",
+    sourceLanguage: "ja",
+    referenceLanguage: "en",
+    sourceCues: [
+      subtitleCue("s1", "source", 0, 0, 2_000, "春樹"),
+      subtitleCue("s2", "source", 1, 1_500, 3_000, "美月"),
+    ],
+    referenceCues: [subtitleCue("r1", "reference", 0, 0, 3_000)],
+  });
+
+  return draft.groups[0]?.decision === "pending"
+    ? acceptAlignmentGroup(draft, draft.groups[0].id)
+    : draft;
+}
+
+function unresolvedSubtitleDraft() {
+  return createSubtitleImportDraft({
+    id: "import-1",
+    sourceArtifactId: "source",
+    sourceLanguage: "ja",
+    referenceLanguage: "en",
+    sourceCues: [subtitleCue("s1", "source", 0, 0, 1_000)],
+    referenceCues: [],
+  });
+}
 
 describe("prepareImport", () => {
   it("preserves every source-only line exactly, including blank and trailing lines", () => {
@@ -91,9 +148,7 @@ describe("createReviewSession", () => {
       "en",
     );
 
-    expect(
-      (session as typeof session & { rawImportText?: string }).rawImportText,
-    ).toBe(rawImportText);
+    expect(session.origin).toEqual({ kind: "paste", rawImportText });
   });
 
   it("uses a user-corrected pairing when creating the local session", () => {
@@ -111,6 +166,44 @@ describe("createReviewSession", () => {
     expect(session.lines[0]).toMatchObject({
       source: "早いね。",
       reference: "That was quick.",
+    });
+  });
+
+  it("creates a subtitle session only from a ready draft", () => {
+    expect(
+      createSubtitleReviewSession(readySubtitleDraft(), 420),
+    ).toMatchObject({
+      kind: "created",
+      session: {
+        version: 2,
+        origin: { kind: "subtitle", importId: "import-1" },
+        activeLineId: "line-1",
+        evidencePanelWidth: 420,
+        lines: [
+          {
+            subtitle: {
+              sourceCueIds: ["s1", "s2"],
+              referenceCueIds: ["r1"],
+              speakers: ["春樹", "美月"],
+            },
+          },
+        ],
+      },
+    });
+    expect(createSubtitleReviewSession(unresolvedSubtitleDraft(), 420)).toEqual(
+      {
+        kind: "not-ready",
+        reason: "Subtitle alignment is not ready for review.",
+      },
+    );
+  });
+
+  it("clamps subtitle review evidence width through the v2 schema", () => {
+    expect(
+      createSubtitleReviewSession(readySubtitleDraft(), 900),
+    ).toMatchObject({
+      kind: "created",
+      session: { evidencePanelWidth: 720 },
     });
   });
 });
