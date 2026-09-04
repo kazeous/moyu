@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { SubtitleFormat } from "./contracts";
+import { MAX_SUBTITLE_FILE_BYTES, type SubtitleFormat } from "./contracts";
 
-export const MAX_SUBTITLE_FILE_BYTES = 25 * 1024 * 1024;
+export { MAX_SUBTITLE_FILE_BYTES } from "./contracts";
 
 const metadataSchema = z
   .object({

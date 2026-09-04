@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const MAX_SUBTITLE_FILE_BYTES = 25 * 1024 * 1024;
+
 export const subtitleFormatSchema = z.enum(["srt", "ass"]);
 export type SubtitleFormat = Readonly<z.infer<typeof subtitleFormatSchema>>;
 
@@ -176,5 +178,24 @@ export const subtitleArtifactSchema = z
     bytes: z.instanceof(Blob),
     status: subtitleArtifactStatusSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((artifact, context) => {
+    if (artifact.size > MAX_SUBTITLE_FILE_BYTES) {
+      context.addIssue({
+        code: "too_big",
+        maximum: MAX_SUBTITLE_FILE_BYTES,
+        origin: "number",
+        inclusive: true,
+        path: ["size"],
+        message: "Subtitle artifacts cannot exceed 25 MiB.",
+      });
+    }
+    if (artifact.bytes.size !== artifact.size) {
+      context.addIssue({
+        code: "custom",
+        path: ["bytes"],
+        message: "Subtitle artifact size must match its Blob size.",
+      });
+    }
+  });
 export type SubtitleArtifact = Readonly<z.infer<typeof subtitleArtifactSchema>>;
