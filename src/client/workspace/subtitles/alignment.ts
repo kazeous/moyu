@@ -14,6 +14,11 @@ export type AlignmentProposal = Readonly<{
   unassignedReferenceCueIds: readonly string[];
 }>;
 
+export type TimingAdjacency = Readonly<{
+  sourceToReference: ReadonlyMap<string, ReadonlySet<string>>;
+  referenceToSource: ReadonlyMap<string, ReadonlySet<string>>;
+}>;
+
 function intervalFor(cue: SubtitleCue): Interval | null {
   if (
     cue.startMs === null ||
@@ -157,10 +162,12 @@ function createGroup(
 ): AlignmentGroup {
   const source = ordered(sourceCues);
   const reference = ordered(referenceCues);
-  const score = scoreTimingGroup(source, reference);
   const eligibleCardinality =
     (source.length === 1 && reference.length >= 1) ||
     (reference.length === 1 && source.length >= 1);
+  const score = eligibleCardinality
+    ? scoreTimingGroup(source, reference)
+    : null;
   const multiCueSide = source.length > 1 ? source : reference;
   const confident =
     reference.length > 0 &&
@@ -253,6 +260,87 @@ function addEdge(
   referenceEdges.set(referenceId, referenceSources);
 }
 
+function expireInactive(
+  active: Map<string, TimedCue>,
+  expiring: EndHeap,
+  startMs: number,
+) {
+  while (
+    expiring.peek() !== undefined &&
+    expiring.peek()!.interval.endMs <= startMs
+  ) {
+    const expired = expiring.pop();
+    if (expired !== undefined) active.delete(expired.cue.id);
+  }
+}
+
+export function buildTimingAdjacency(
+  sourceCues: readonly SubtitleCue[],
+  referenceCues: readonly SubtitleCue[],
+): TimingAdjacency {
+  const sourceEdges = new Map<string, Set<string>>();
+  const referenceEdges = new Map<string, Set<string>>();
+  const activeSources = new Map<string, TimedCue>();
+  const activeReferences = new Map<string, TimedCue>();
+  const expiringSources = new EndHeap();
+  const expiringReferences = new EndHeap();
+  const events = [
+    ...orderedByStart(sourceCues).map((timedCue) => ({
+      kind: "source" as const,
+      timedCue,
+    })),
+    ...orderedByStart(referenceCues).map((timedCue) => ({
+      kind: "reference" as const,
+      timedCue,
+    })),
+  ].sort(
+    (left, right) =>
+      left.timedCue.interval.startMs - right.timedCue.interval.startMs ||
+      (left.kind === right.kind ? 0 : left.kind === "source" ? -1 : 1) ||
+      left.timedCue.cue.sourceOrder - right.timedCue.cue.sourceOrder ||
+      left.timedCue.cue.id.localeCompare(right.timedCue.cue.id),
+  );
+
+  for (const event of events) {
+    const { timedCue } = event;
+    expireInactive(activeSources, expiringSources, timedCue.interval.startMs);
+    expireInactive(
+      activeReferences,
+      expiringReferences,
+      timedCue.interval.startMs,
+    );
+
+    if (event.kind === "source") {
+      for (const activeReference of activeReferences.values()) {
+        addEdge(
+          sourceEdges,
+          referenceEdges,
+          timedCue.cue.id,
+          activeReference.cue.id,
+        );
+      }
+      activeSources.set(timedCue.cue.id, timedCue);
+      expiringSources.push(timedCue);
+    } else {
+      for (const activeSource of activeSources.values()) {
+        addEdge(
+          sourceEdges,
+          referenceEdges,
+          activeSource.cue.id,
+          timedCue.cue.id,
+        );
+      }
+      activeReferences.set(timedCue.cue.id, timedCue);
+      expiringReferences.push(timedCue);
+    }
+  }
+
+  return {
+    sourceToReference: sourceEdges,
+    referenceToSource: referenceEdges,
+  };
+}
+
 export function alignSubtitleCues(
   sourceCues: readonly SubtitleCue[],
   referenceCues: readonly SubtitleCue[],
@@ -261,45 +349,8 @@ export function alignSubtitleCues(
   const reference = ordered(referenceCues);
   const sourceById = new Map(source.map((cue) => [cue.id, cue]));
   const referenceById = new Map(reference.map((cue) => [cue.id, cue]));
-  const sourceEdges = new Map<string, Set<string>>();
-  const referenceEdges = new Map<string, Set<string>>();
-  const activeReferences = new Map<string, TimedCue>();
-  const expiringReferences = new EndHeap();
-  const timedReferences = orderedByStart(reference);
-  let nextReference = 0;
-
-  for (const sourceTimedCue of orderedByStart(source)) {
-    while (
-      nextReference < timedReferences.length &&
-      timedReferences[nextReference].interval.startMs <
-        sourceTimedCue.interval.endMs
-    ) {
-      const referenceTimedCue = timedReferences[nextReference];
-      activeReferences.set(referenceTimedCue.cue.id, referenceTimedCue);
-      expiringReferences.push(referenceTimedCue);
-      nextReference += 1;
-    }
-    while (
-      expiringReferences.peek() !== undefined &&
-      expiringReferences.peek()!.interval.endMs <=
-        sourceTimedCue.interval.startMs
-    ) {
-      const expired = expiringReferences.pop();
-      if (expired !== undefined) activeReferences.delete(expired.cue.id);
-    }
-    for (const referenceTimedCue of activeReferences.values()) {
-      if (
-        overlapDuration(sourceTimedCue.interval, referenceTimedCue.interval) > 0
-      ) {
-        addEdge(
-          sourceEdges,
-          referenceEdges,
-          sourceTimedCue.cue.id,
-          referenceTimedCue.cue.id,
-        );
-      }
-    }
-  }
+  const { sourceToReference: sourceEdges, referenceToSource: referenceEdges } =
+    buildTimingAdjacency(source, reference);
 
   const seenSources = new Set<string>();
   const seenReferences = new Set<string>();

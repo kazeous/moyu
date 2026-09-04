@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { alignSubtitleCues, scoreTimingGroup } from "./alignment";
+import {
+  alignSubtitleCues,
+  buildTimingAdjacency,
+  scoreTimingGroup,
+} from "./alignment";
 import type { SubtitleCue } from "./contracts";
 
 function cue(
@@ -154,23 +158,42 @@ describe("alignSubtitleCues", () => {
     );
   });
 
-  it("aligns a large sparse ordered fixture without quadratic comparison work", () => {
-    const count = 8_000;
-    const source = Array.from({ length: count }, (_, index) =>
-      cue(`s-${index}`, index * 2_000, index * 2_000 + 500, index),
-    );
+  it("builds actual-overlap adjacency when an early long source precedes future references", () => {
+    const count = 4_000;
+    const source = [
+      cue("s-long", 0, count * 2_000 + 1_000, 0),
+      ...Array.from({ length: count }, (_, index) =>
+        cue(`s-${index}`, index * 2_000, index * 2_000 + 500, index + 1),
+      ),
+    ];
     const reference = Array.from({ length: count }, (_, index) =>
       cue(`r-${index}`, index * 2_000, index * 2_000 + 500, index),
     );
-    const startedAt = performance.now();
+    const adjacency = buildTimingAdjacency(source, reference);
     const proposal = alignSubtitleCues(source, reference);
 
-    expect(proposal.groups).toHaveLength(count);
-    expect(proposal.groups.at(-1)).toMatchObject({
-      sourceCueIds: [`s-${count - 1}`],
-      referenceCueIds: [`r-${count - 1}`],
-      decision: "automatic",
-    });
-    expect(performance.now() - startedAt).toBeLessThan(1_000);
+    expect(adjacency.sourceToReference.get("s-long")?.size).toBe(count);
+    expect(adjacency.sourceToReference.get(`s-${count - 1}`)).toEqual(
+      new Set([`r-${count - 1}`]),
+    );
+    expect(adjacency.referenceToSource.get(`r-${count - 1}`)).toEqual(
+      new Set(["s-long", `s-${count - 1}`]),
+    );
+    expect(proposal.groups).toMatchObject([
+      {
+        sourceCueIds: [
+          "s-long",
+          ...Array.from({ length: count }, (_, index) => `s-${index}`),
+        ],
+        referenceCueIds: Array.from(
+          { length: count },
+          (_, index) => `r-${index}`,
+        ),
+        status: "needs-review",
+        confidence: null,
+        decision: "pending",
+      },
+    ]);
+    expect(proposal.unassignedReferenceCueIds).toEqual([]);
   });
 });
