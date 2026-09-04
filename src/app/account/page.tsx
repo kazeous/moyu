@@ -11,11 +11,14 @@ export default async function AccountPage() {
   );
   if (!user) redirect("/sign-in");
   return (
-    <main>
+    <main className="site-shell">
       <Link href="/">moyu</Link>
       <h1>Your account</h1>
       <p>Signed in as {user.displayName}.</p>
       <p>{user.email}</p>
+      <p>
+        <Link href="/workspace">Open workspace</Link>
+      </p>
       <SignOutButton />
     </main>
   );

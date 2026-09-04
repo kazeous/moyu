@@ -3,7 +3,7 @@ import { AuthForm } from "@/client/auth/auth-form";
 
 export default function SignUpPage() {
   return (
-    <main>
+    <main className="site-shell">
       <Link href="/">moyu</Link>
       <h1>Create your account</h1>
       <p>Save your personal terminology and settings.</p>

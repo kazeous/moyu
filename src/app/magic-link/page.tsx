@@ -3,7 +3,7 @@ import { AuthForm } from "@/client/auth/auth-form";
 
 export default function MagicLinkPage() {
   return (
-    <main>
+    <main className="site-shell">
       <Link href="/">moyu</Link>
       <h1>Sign in by email</h1>
       <p>Request a one-time link for your existing account.</p>
