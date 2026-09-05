@@ -1,16 +1,18 @@
-/* Hallmark · macrostructure: Workbench · tone: Workshop · anchor hue: oxidized blue */
+/* Hallmark · macrostructure: Workbench · accepted palette: warm paper and forest green */
 :root {
-  --color-paper: oklch(0.972 0.01 86);
-  --color-paper-raised: oklch(0.992 0.004 86);
-  --color-paper-muted: oklch(0.936 0.016 82);
-  --color-ink: oklch(0.255 0.022 255);
-  --color-muted-ink: oklch(0.48 0.024 255);
-  --color-rule: oklch(0.78 0.02 80);
-  --color-accent: oklch(0.48 0.092 231);
-  --color-accent-ink: oklch(0.985 0.004 232);
-  --color-accent-wash: oklch(0.93 0.025 231);
+  --color-paper: #f6f6f0;
+  --color-paper-raised: #fcfcf8;
+  --color-paper-muted: #efefe8;
+  --color-ink: #252b28;
+  --color-muted-ink: #69716c;
+  --color-rule: #d7d9d0;
+  --color-accent: #2c5f45;
+  --color-accent-ink: #ffffff;
+  --color-accent-wash: #e4f1e6;
+  --color-warning: #93631d;
+  --color-warning-wash: #f5eddc;
   --color-focus: oklch(0.12 0.04 231);
-  --color-danger: oklch(0.53 0.17 28);
+  --color-danger: #8b3d35;
   --color-danger-wash: oklch(0.95 0.025 28);
   --color-success: oklch(0.43 0.09 150);
   --color-success-wash: oklch(0.94 0.035 150);

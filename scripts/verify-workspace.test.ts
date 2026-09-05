@@ -1,7 +1,88 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { assertMetadataContracts } from "./verify-foundation.mjs";
 import { inspectWorkspaceBoundary } from "./verify-workspace.mjs";
 
 describe("workspace deployment boundary", () => {
+  it.each([
+    "fileName",
+    "fileBytes",
+    "subtitleEncoding",
+    "subtitleFormat",
+    "subtitleCues",
+    "cueTimings",
+    "speakerNames",
+    "alignmentDraft",
+    "subtitleArtifactId",
+    "subtitleImportId",
+  ])("rejects subtitle-derived server key %s", (key) => {
+    expect(() =>
+      inspectWorkspaceBoundary({
+        apiSources: [
+          {
+            path: "src/app/api/subtitles/route.ts",
+            text: `const body = z.object({ ${key}: z.string() });`,
+          },
+        ],
+      }),
+    ).toThrow(
+      `Server/API boundary introduces forbidden review-content key ${key}`,
+    );
+    expect(() =>
+      assertMetadataContracts({
+        settingsSchema: z.object({
+          preferences: z.array(z.object({ [key]: z.string() })),
+        }),
+      }),
+    ).toThrow(`Forbidden review-content key: ${key}`);
+  });
+
+  it("rejects a network primitive inside a subtitle worker", () => {
+    expect(() =>
+      inspectWorkspaceBoundary({
+        clientSources: [
+          {
+            path: "src/client/workspace/subtitles/subtitle-worker.ts",
+            text: 'self.fetch("https://example.test")',
+          },
+        ],
+      }),
+    ).toThrow("Browser workspace uses network primitive fetch");
+  });
+
+  it.each(["serverSources", "apiSources", "appSources"] as const)(
+    "rejects subtitle imports at the %s boundary",
+    (boundary) => {
+      expect(() =>
+        inspectWorkspaceBoundary({
+          [boundary]: [
+            {
+              path: "src/server/subtitle-leak.ts",
+              text: `'use server';\nimport { subtitleCueSchema } from "@/client/workspace/subtitles/model";`,
+            },
+          ],
+        }),
+      ).toThrow("Server code imports browser workspace data");
+    },
+  );
+
+  it.each([
+    "const { subtitleCues: cues } = input;",
+    'const value = input["fileBytes"];',
+    "const value = input.alignmentDraft;",
+  ])("rejects subtitle field access inside server actions: %s", (text) => {
+    expect(() =>
+      inspectWorkspaceBoundary({
+        appSources: [
+          {
+            path: "src/app/actions/subtitles.ts",
+            text: `'use server';\n${text}`,
+          },
+        ],
+      }),
+    ).toThrow("Server/API boundary introduces forbidden review-content key");
+  });
+
   it("accepts browser-only workspace code without network primitives", () => {
     expect(
       inspectWorkspaceBoundary({

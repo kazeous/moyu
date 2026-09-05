@@ -4,7 +4,7 @@ async function storedActiveLineId(page: import("@playwright/test").Page) {
   return page.evaluate(
     () =>
       new Promise<string | undefined>((resolve, reject) => {
-        const openRequest = indexedDB.open("moyu-local-review", 1);
+        const openRequest = indexedDB.open("moyu-local-review");
         openRequest.addEventListener("error", () => reject(openRequest.error), {
           once: true,
         });
@@ -113,11 +113,14 @@ test("dialogue import stays local, survives reload, and clears only on confirmat
 
   await expect(
     page.getByRole("heading", {
-      name: "2 local dialogue entries",
+      name: "PAIRED LINES",
       exact: true,
     }),
   ).toBeVisible();
   await expect(page.locator("article").first()).toContainText(dialogue);
+  await expect(
+    page.getByRole("button", { name: "Review alignment", exact: true }),
+  ).toHaveCount(0);
   await expect(page.locator("article").first()).toContainText(
     "Corrected local reference.",
   );
@@ -238,6 +241,10 @@ test("user scroll intent releases an unfinished programmatic scroll", async ({
     HTMLElement.prototype.scrollIntoView = () => undefined;
   });
   await page.getByRole("button", { name: "60 会話 60", exact: true }).click();
+  await expect(page.locator("article").nth(59)).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
 
   const surface = page.getByRole("region", {
     name: "Continuous dialogue review",
@@ -251,7 +258,11 @@ test("user scroll intent releases an unfinished programmatic scroll", async ({
         ".workspace__review-surface",
       );
       if (!reviewSurface) throw new Error("Review surface is missing");
-      reviewSurface.scrollTop += element.getBoundingClientRect().top - 108;
+      reviewSurface.scrollTo({
+        top:
+          reviewSurface.scrollTop + element.getBoundingClientRect().top - 108,
+        behavior: "instant",
+      });
     });
 
   await expect(
@@ -315,7 +326,7 @@ test("offers a safe way to clear an unreadable local session", async ({
   await page.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("moyu-local-review", 1);
+        const request = indexedDB.open("moyu-local-review");
         request.addEventListener("error", () => reject(request.error), {
           once: true,
         });

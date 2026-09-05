@@ -22,13 +22,14 @@
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
     "verify:foundation": "node --env-file-if-exists=.env scripts/verify-foundation.mjs",
     "verify:workspace:boundary": "node scripts/verify-workspace.mjs",
-    "verify:workspace": "node scripts/verify-workspace.mjs && vitest run src/client/workspace scripts/verify-workspace.test.ts && playwright test tests/e2e/workspace-shell.spec.ts tests/e2e/workspace.spec.ts tests/e2e/workspace-responsive.spec.ts",
+    "verify:workspace": "node scripts/verify-workspace.mjs && vitest run src/client/workspace scripts/verify-workspace.test.ts && playwright test tests/e2e/workspace-shell.spec.ts tests/e2e/workspace.spec.ts tests/e2e/workspace-responsive.spec.ts tests/e2e/subtitle-import.spec.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cn": "^0.2.5",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.40.0",
     "next": "^16.0.0",

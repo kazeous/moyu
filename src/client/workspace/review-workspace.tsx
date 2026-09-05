@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpenText, ClipboardPaste, PanelRight, Trash2 } from "lucide-react";
+import {
+  BookOpenText,
+  ClipboardPaste,
+  FileUp,
+  PanelRight,
+  Trash2,
+} from "lucide-react";
 import {
   type KeyboardEvent,
   type RefCallback,
@@ -45,6 +51,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -70,13 +77,17 @@ import {
   type SourceLanguage,
 } from "./model";
 import {
-  createSessionPersistenceQueue,
-  type SessionPersistenceQueue,
+  createWorkspacePersistenceQueue,
+  type WorkspacePersistenceQueue,
 } from "./session-persistence";
 import {
   createLocalSessionStore,
-  type LocalSessionStore,
+  type LocalWorkspaceResult,
+  type LocalWorkspaceSnapshot,
 } from "./session-store";
+import { SubtitleAlignmentWorkspace } from "./subtitle-alignment-workspace";
+import { SubtitleFileDialog } from "./subtitle-file-dialog";
+import { useSubtitleImport } from "./use-subtitle-import";
 
 type StorageMessage = { tone: "error" | "success"; text: string } | null;
 type StorageRecovery = "clear" | "retry" | "retry-clear" | null;
@@ -103,7 +114,7 @@ function EvidencePane({ session }: { session: ReviewSession }) {
   if (!activeLine) {
     return (
       <section className="workspace__evidence" aria-label="Evidence">
-        <p className="workspace__eyebrow">Evidence</p>
+        <p className="workspace__eyebrow">EVIDENCE</p>
         <h2>Choose a line to inspect</h2>
         <p className="workspace__muted">
           The evidence panel updates for the selected local line.
@@ -115,12 +126,11 @@ function EvidencePane({ session }: { session: ReviewSession }) {
   return (
     <section className="workspace__evidence" aria-label="Evidence">
       <div className="workspace__evidence-heading">
-        <div>
-          <p className="workspace__eyebrow">Selected line</p>
-          <h2>Line {session.lines.indexOf(activeLine) + 1}</h2>
-        </div>
-        <Badge variant="outline">Local</Badge>
+        <h2 title={activeLine.source || "Blank source line"}>
+          EVIDENCE · <span>{activeLine.source || "Blank source line"}</span>
+        </h2>
       </div>
+      <Separator />
       <dl className="workspace__evidence-source">
         <div>
           <dt>Surface form</dt>
@@ -137,6 +147,7 @@ function EvidencePane({ session }: { session: ReviewSession }) {
           </div>
         ) : null}
       </dl>
+      <Separator />
       <div className="workspace__unavailable" role="status">
         <p className="workspace__eyebrow">Lexical evidence</p>
         <h3>Not available yet</h3>
@@ -156,12 +167,16 @@ function ImportDesk({
   onRetryStorage,
   storageRecovery,
   storageMessage,
+  onUploadSubtitleFiles,
+  onResumeSubtitleDraft,
 }: {
   onClearUnreadable: () => void;
   onImport: (session: ReviewSession) => void;
   onRetryStorage: () => void;
   storageRecovery: StorageRecovery;
   storageMessage: StorageMessage;
+  onUploadSubtitleFiles: () => void;
+  onResumeSubtitleDraft?: () => void;
 }) {
   const [value, setValue] = useState("");
   const [mode, setMode] = useState<ImportMode>("source-only");
@@ -396,7 +411,7 @@ function ImportDesk({
               <Field>
                 <FieldLabel>Source language</FieldLabel>
                 <ToggleGroup
-                  aria-label="Source language"
+                  aria-label="Language for pasted source"
                   onValueChange={(nextValue) => {
                     const nextLanguage = nextValue[0];
                     if (nextLanguage === "ja" || nextLanguage === "zh") {
@@ -415,7 +430,7 @@ function ImportDesk({
               <Field>
                 <FieldLabel>Reference language</FieldLabel>
                 <ToggleGroup
-                  aria-label="Reference language"
+                  aria-label="Language for pasted reference"
                   onValueChange={(nextValue) => {
                     const nextLanguage = nextValue[0];
                     if (nextLanguage === "en" || nextLanguage === "vi") {
@@ -465,6 +480,15 @@ function ImportDesk({
               <BookOpenText data-icon="inline-start" aria-hidden="true" />
               Review and correct pairs
             </Button>
+            <Button onClick={onUploadSubtitleFiles} size="lg" variant="outline">
+              <FileUp data-icon="inline-start" aria-hidden="true" />
+              Upload subtitle files
+            </Button>
+            {onResumeSubtitleDraft ? (
+              <Button onClick={onResumeSubtitleDraft} variant="ghost">
+                Resume subtitle draft
+              </Button>
+            ) : null}
           </EmptyContent>
         </Empty>
       </main>
@@ -483,6 +507,7 @@ function ReviewSurface({
   registerLine,
   onScroll,
   onUserScrollIntent,
+  showSpeakerNames,
 }: {
   onProgrammaticScrollEnd: () => void;
   onRetryClear: () => void;
@@ -494,6 +519,7 @@ function ReviewSurface({
   registerLine: (lineId: string) => RefCallback<HTMLElement>;
   onScroll: () => void;
   onUserScrollIntent: () => void;
+  showSpeakerNames: boolean;
 }) {
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
     const target = event.target;
@@ -537,12 +563,8 @@ function ReviewSurface({
       tabIndex={0}
     >
       <div className="workspace__review-intro">
-        <p className="workspace__eyebrow">Continuous review</p>
-        <h1>
-          {session.lines.length} local dialogue{" "}
-          {session.lines.length === 1 ? "entry" : "entries"}
-        </h1>
-        <p>
+        <h1>PAIRED LINES</h1>
+        <p className="sr-only">
           Select a line, or use the arrow keys while this surface is focused.
         </p>
         {storageMessage ? (
@@ -591,19 +613,24 @@ function ReviewSurface({
               ref={registerLine(line.id)}
             >
               <div className="workspace__line-meta">
-                <span>Line {index + 1}</span>
-                {active ? <Badge>Active</Badge> : null}
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                {showSpeakerNames && line.subtitle?.speakers.length ? (
+                  <span className="workspace__speaker">
+                    {line.subtitle.speakers.join(" · ")}
+                  </span>
+                ) : null}
+                {active ? <Badge variant="outline">Active</Badge> : null}
               </div>
               <div className="workspace__line-text">
                 <p lang={session.sourceLanguage}>
-                  <span className="workspace__language-label">
+                  <span className="workspace__language-label sr-only">
                     {sourceLanguageLabels[session.sourceLanguage]}
                   </span>
                   {line.source || "Blank source line"}
                 </p>
                 {line.reference !== undefined ? (
                   <p lang={session.referenceLanguage}>
-                    <span className="workspace__language-label">
+                    <span className="workspace__language-label sr-only">
                       {referenceLanguageLabels[session.referenceLanguage]}
                     </span>
                     {line.reference || "Blank reference line"}
@@ -620,7 +647,9 @@ function ReviewSurface({
                     size="sm"
                     variant="outline"
                   >
-                    {line.source || "Blank source line"}
+                    <span className="truncate">
+                      {line.source || "Blank source line"}
+                    </span>
                   </Button>
                   <span>
                     Local token evidence is unavailable until language assets
@@ -646,6 +675,8 @@ function ReviewWorkspace({
   session,
   storageMessage,
   storageRecovery,
+  onReviewAlignment,
+  showSpeakerNames,
 }: {
   clearing: boolean;
   onClear: () => void;
@@ -656,6 +687,8 @@ function ReviewWorkspace({
   session: ReviewSession;
   storageMessage: StorageMessage;
   storageRecovery: StorageRecovery;
+  onReviewAlignment?: () => void;
+  showSpeakerNames: boolean;
 }) {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const lineElements = useRef(new Map<string, HTMLElement>());
@@ -768,15 +801,34 @@ function ReviewWorkspace({
         <Link className="workspace__brand" href="/" aria-label="moyu home">
           moyu
         </Link>
+        <div className="workspace__session-context">
+          <span>
+            {session.origin.kind === "subtitle"
+              ? "Subtitle review"
+              : "Pasted dialogue"}
+          </span>
+          <span>
+            {sourceLanguageLabels[session.sourceLanguage]} →{" "}
+            {referenceLanguageLabels[session.referenceLanguage]}
+          </span>
+        </div>
         <div className="workspace__header-status">
-          <Badge variant="outline">Local session</Badge>
+          <Badge variant="outline">Local only</Badge>
+          {onReviewAlignment ? (
+            <Button onClick={onReviewAlignment} size="sm" variant="ghost">
+              Review alignment
+            </Button>
+          ) : null}
           <Link className="workspace__account-link" href="/account">
             Account
           </Link>
           <AlertDialog onOpenChange={setClearDialogOpen} open={clearDialogOpen}>
-            <AlertDialogTrigger render={<Button size="sm" variant="ghost" />}>
+            <AlertDialogTrigger
+              aria-label="Clear session"
+              render={<Button size="sm" variant="ghost" />}
+            >
               <Trash2 data-icon="inline-start" aria-hidden="true" />
-              Clear session
+              <span className="workspace__clear-label">Clear session</span>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -852,17 +904,22 @@ function ReviewWorkspace({
         >
           <ResizablePanel
             className="workspace__navigator-panel"
-            defaultSize="22%"
+            defaultSize="18%"
             id="navigator"
-            minSize="16%"
+            minSize="14%"
           >
             <nav
               className="workspace__navigator"
               aria-label="Dialogue navigator"
             >
               <div className="workspace__panel-title">
-                <p className="workspace__eyebrow">Navigator</p>
-                <span>{session.lines.length} lines</span>
+                <h2>
+                  DIALOGUE ·{" "}
+                  {session.lines.findIndex(
+                    (line) => line.id === session.activeLineId,
+                  ) + 1}
+                  /{session.lines.length}
+                </h2>
               </div>
               <ScrollArea className="workspace__navigator-scroll">
                 <div className="workspace__navigator-list">
@@ -903,6 +960,7 @@ function ReviewWorkspace({
               session={session}
               storageMessage={storageMessage}
               storageRecovery={storageRecovery}
+              showSpeakerNames={showSpeakerNames}
             />
           </ResizablePanel>
           <ResizableHandle className="workspace__divider" withHandle />
@@ -946,31 +1004,95 @@ function ReviewWorkspace({
   );
 }
 
+const emptyWorkspaceSnapshot: LocalWorkspaceSnapshot = {
+  session: null,
+  subtitleImport: null,
+  artifacts: [],
+  preferences: { showSpeakerNames: true },
+};
+
 export function LocalReviewWorkspace() {
-  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState<LocalWorkspaceResult | null>(null);
+  const [loadRevision, setLoadRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    void createLocalSessionStore(window.indexedDB)
+      .load()
+      .then((loaded) => {
+        if (active) setResult(loaded);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadRevision]);
+
+  if (!result)
+    return <main className="workspace__loading">Opening local review…</main>;
+  return (
+    <HydratedLocalReviewWorkspace
+      key={loadRevision}
+      initialSnapshot={
+        result.kind === "available" ? result.snapshot : emptyWorkspaceSnapshot
+      }
+      initialMessage={
+        result.kind === "unavailable" || result.kind === "corrupt"
+          ? { tone: "error", text: result.reason }
+          : null
+      }
+      initialRecovery={
+        result.kind === "corrupt"
+          ? "clear"
+          : result.kind === "unavailable"
+            ? "retry"
+            : null
+      }
+      onReloadStorage={() => {
+        setResult(null);
+        setLoadRevision((revision) => revision + 1);
+      }}
+    />
+  );
+}
+
+function HydratedLocalReviewWorkspace({
+  initialSnapshot,
+  initialMessage,
+  initialRecovery,
+  onReloadStorage,
+}: {
+  initialSnapshot: LocalWorkspaceSnapshot;
+  initialMessage: StorageMessage;
+  initialRecovery: StorageRecovery;
+  onReloadStorage: () => void;
+}) {
   const [clearing, setClearing] = useState(false);
-  const [session, setSession] = useState<ReviewSession | null>(null);
-  const [storageRecovery, setStorageRecovery] = useState<StorageRecovery>(null);
-  const [storageMessage, setStorageMessage] = useState<StorageMessage>(null);
-  const storeRef = useRef<LocalSessionStore | null>(null);
-  const persistenceRef = useRef<SessionPersistenceQueue | null>(null);
+  const [session, setSession] = useState<ReviewSession | null>(
+    initialSnapshot.session,
+  );
+  const [viewMode, setViewMode] = useState<"review" | "alignment">("review");
+  const [storageRecovery, setStorageRecovery] =
+    useState<StorageRecovery>(initialRecovery);
+  const [storageMessage, setStorageMessage] =
+    useState<StorageMessage>(initialMessage);
+  const [persistence] = useState<WorkspacePersistenceQueue>(() =>
+    createWorkspacePersistenceQueue(() =>
+      createLocalSessionStore(window.indexedDB),
+    ),
+  );
   const clearUnreadableRef = useRef(false);
-
-  function store() {
-    if (!storeRef.current) {
-      storeRef.current = createLocalSessionStore(window.indexedDB);
-    }
-
-    return storeRef.current;
-  }
-
-  function persistence() {
-    if (!persistenceRef.current) {
-      persistenceRef.current = createSessionPersistenceQueue(store);
-    }
-
-    return persistenceRef.current;
-  }
+  const subtitleController = useSubtitleImport({
+    initialImport: initialSnapshot.subtitleImport,
+    initialArtifacts: initialSnapshot.artifacts,
+    initialPreferences: initialSnapshot.preferences,
+    hasReviewSession: initialSnapshot.session !== null,
+    persistence,
+    getEvidencePanelWidth: () => session?.evidencePanelWidth ?? 360,
+    onCleared: () => {
+      setSession(null);
+      setViewMode("alignment");
+      setStorageRecovery(null);
+    },
+  });
 
   function persistSession(nextSession: ReviewSession, beginSession = false) {
     if (clearing) {
@@ -978,59 +1100,29 @@ export function LocalReviewWorkspace() {
     }
 
     if (beginSession) {
-      persistence().beginSession();
+      persistence.beginReviewContent();
     }
 
     setSession(nextSession);
-    void persistence()
-      .save(nextSession)
-      .then((result) => {
-        if (result.kind === "ignored") {
-          return;
-        }
+    setViewMode("review");
+    void persistence.saveSession(nextSession).then((result) => {
+      if (result.kind === "ignored") {
+        return;
+      }
 
-        if (result.kind === "unavailable") {
-          setStorageMessage({ tone: "error", text: result.reason });
-          setStorageRecovery("retry");
-        } else {
-          setStorageMessage(
-            beginSession
-              ? { tone: "success", text: "Saved in this browser." }
-              : null,
-          );
-          setStorageRecovery(null);
-        }
-      });
+      if (result.kind === "unavailable") {
+        setStorageMessage({ tone: "error", text: result.reason });
+        setStorageRecovery("retry");
+      } else {
+        setStorageMessage(
+          beginSession
+            ? { tone: "success", text: "Saved in this browser." }
+            : null,
+        );
+        setStorageRecovery(null);
+      }
+    });
   }
-
-  useEffect(() => {
-    let active = true;
-
-    void store()
-      .load()
-      .then((result) => {
-        if (!active) {
-          return;
-        }
-
-        if (result.kind === "available") {
-          setSession(result.session);
-          setStorageRecovery(null);
-        } else if (result.kind === "corrupt") {
-          setStorageMessage({ tone: "error", text: result.reason });
-          setStorageRecovery("clear");
-        } else if (result.kind === "unavailable") {
-          setStorageMessage({ tone: "error", text: result.reason });
-          setStorageRecovery("retry");
-        }
-
-        setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   function handleSelectLine(lineId: string, shouldScroll: boolean) {
     if (clearing || !session || lineId === session.activeLineId) {
@@ -1063,100 +1155,118 @@ export function LocalReviewWorkspace() {
 
     clearUnreadableRef.current = unreadable || clearUnreadableRef.current;
     setClearing(true);
-    void persistence()
-      .clear()
-      .then((result) => {
-        setStorageMessage(
-          result.kind === "unavailable"
-            ? { tone: "error", text: result.reason }
-            : {
-                tone: "success",
-                text: clearUnreadableRef.current
-                  ? "Unreadable local data was cleared."
-                  : "The local review session was cleared.",
-              },
-        );
+    void persistence.clearReviewContent().then((result) => {
+      setStorageMessage(
+        result.kind === "unavailable"
+          ? { tone: "error", text: result.reason }
+          : {
+              tone: "success",
+              text: clearUnreadableRef.current
+                ? "Unreadable local data was cleared."
+                : "The local review session was cleared.",
+            },
+      );
 
-        if (result.kind === "saved") {
-          setSession(null);
-          setStorageRecovery(null);
-          clearUnreadableRef.current = false;
-        } else {
-          setStorageRecovery("retry-clear");
-        }
-        setClearing(false);
-      });
+      if (result.kind === "saved") {
+        subtitleController.resetAfterClear();
+        setSession(null);
+        setStorageRecovery(null);
+        clearUnreadableRef.current = false;
+      } else {
+        setStorageRecovery("retry-clear");
+      }
+      setClearing(false);
+    });
   }
 
   function handleRetryStorage() {
-    storeRef.current = null;
-
     if (session) {
-      void persistence()
-        .save(session)
-        .then((result) => {
-          if (result.kind === "ignored") {
-            return;
-          }
-          if (result.kind === "unavailable") {
-            setStorageMessage({ tone: "error", text: result.reason });
-            setStorageRecovery("retry");
-          } else {
-            setStorageMessage({
-              tone: "success",
-              text: "Saved in this browser.",
-            });
-            setStorageRecovery(null);
-          }
-        });
+      void persistence.saveSession(session).then((result) => {
+        if (result.kind === "ignored") {
+          return;
+        }
+        if (result.kind === "unavailable") {
+          setStorageMessage({ tone: "error", text: result.reason });
+          setStorageRecovery("retry");
+        } else {
+          setStorageMessage({
+            tone: "success",
+            text: "Saved in this browser.",
+          });
+          setStorageRecovery(null);
+        }
+      });
       return;
     }
 
-    setLoading(true);
-    void store()
-      .load()
-      .then((result) => {
-        if (result.kind === "available") {
-          setSession(result.session);
-          setStorageMessage(null);
-          setStorageRecovery(null);
-        } else if (result.kind === "empty") {
-          setStorageMessage({
-            tone: "success",
-            text: "Local storage is available.",
-          });
-          setStorageRecovery(null);
-        } else {
-          setStorageMessage({ tone: "error", text: result.reason });
-          setStorageRecovery(result.kind === "corrupt" ? "clear" : "retry");
-        }
-        setLoading(false);
-      });
+    onReloadStorage();
   }
 
-  if (loading) {
-    return <main className="workspace__loading">Opening local review…</main>;
+  function openSavedAlignment() {
+    subtitleController.openAlignment();
+    setViewMode("alignment");
   }
 
-  return session ? (
-    <ReviewWorkspace
-      clearing={clearing}
-      onClear={() => handleClear(false)}
-      onEvidencePanelWidth={handleEvidencePanelWidth}
-      onRetryClear={() => handleClear(clearUnreadableRef.current)}
-      onRetryStorage={handleRetryStorage}
-      onSelectLine={handleSelectLine}
-      session={session}
-      storageMessage={storageMessage}
-      storageRecovery={storageRecovery}
-    />
-  ) : (
-    <ImportDesk
-      onClearUnreadable={() => handleClear(true)}
-      onImport={(nextSession) => persistSession(nextSession, true)}
-      onRetryStorage={handleRetryStorage}
-      storageMessage={storageMessage}
-      storageRecovery={storageRecovery}
-    />
+  const importState =
+    subtitleController.state.kind === "idle"
+      ? subtitleController.state.restoredImport
+      : subtitleController.state.importState;
+  const draft = importState?.draft;
+  const canReopen =
+    session?.origin.kind === "subtitle" &&
+    session.origin.importId === importState?.id &&
+    Boolean(draft);
+  let surface;
+  if (session && viewMode === "review") {
+    surface = (
+      <ReviewWorkspace
+        clearing={clearing}
+        onClear={() => handleClear(false)}
+        onEvidencePanelWidth={handleEvidencePanelWidth}
+        onRetryClear={() => handleClear(clearUnreadableRef.current)}
+        onRetryStorage={handleRetryStorage}
+        onSelectLine={handleSelectLine}
+        session={session}
+        storageMessage={storageMessage}
+        storageRecovery={storageRecovery}
+        showSpeakerNames={subtitleController.showSpeakerNames}
+        onReviewAlignment={canReopen ? openSavedAlignment : undefined}
+      />
+    );
+  } else if (draft && subtitleController.state.kind !== "idle") {
+    surface = (
+      <SubtitleAlignmentWorkspace
+        controller={subtitleController}
+        draft={draft}
+        onBackToReview={session ? () => setViewMode("review") : undefined}
+        onStartReview={async () => {
+          const result = await subtitleController.startReview();
+          if (result.kind === "started") {
+            setSession(result.session);
+            setViewMode("review");
+            setStorageMessage(null);
+            setStorageRecovery(null);
+          }
+        }}
+      />
+    );
+  } else {
+    surface = (
+      <ImportDesk
+        onClearUnreadable={() => handleClear(true)}
+        onImport={(nextSession) => persistSession(nextSession, true)}
+        onRetryStorage={handleRetryStorage}
+        storageMessage={storageMessage ?? subtitleController.notice}
+        storageRecovery={storageRecovery}
+        onUploadSubtitleFiles={subtitleController.openFiles}
+        onResumeSubtitleDraft={draft ? openSavedAlignment : undefined}
+      />
+    );
+  }
+  return (
+    <>
+      {surface}
+      <SubtitleFileDialog controller={subtitleController} />
+    </>
   );
 }
