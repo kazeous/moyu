@@ -396,6 +396,136 @@ test("reopens and reapplies a subtitle review without losing Evidence or the pre
   ).toHaveCount(0);
 });
 
+for (const role of ["Source", "Reference"] as const) {
+  test(`requires re-alignment after changing the ${role.toLowerCase()} language`, async ({
+    page,
+  }) => {
+    await importFiles(page, ASS_SOURCE, SRT_REFERENCE);
+    await page.getByRole("button", { name: "Files & encoding" }).click();
+    await page.getByLabel(`${role} language`).click();
+    await page
+      .getByRole("option", {
+        name: role === "Source" ? "Chinese" : "Vietnamese",
+        exact: true,
+      })
+      .click();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Start local review" }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Re-align files" }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Start local review" }),
+    ).toBeDisabled();
+    await page.getByRole("button", { name: "Files & encoding" }).click();
+    await page.getByRole("button", { name: "Re-align files" }).click();
+    await page.getByRole("button", { name: "Start local review" }).click();
+    await expect(
+      page.getByRole("region", { name: "Evidence", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .locator("article .workspace__line-text")
+        .first()
+        .locator("p")
+        .nth(role === "Source" ? 0 : 1),
+    ).toHaveAttribute("lang", role === "Source" ? "zh" : "vi");
+  });
+}
+
+test("restores a source-only draft after a failed reference addition", async ({
+  page,
+}) => {
+  await importFiles(page, ASS_SOURCE);
+  for (const row of await page.getByRole("article").all()) {
+    await row
+      .getByRole("button", { name: "Keep source-only", exact: true })
+      .click();
+  }
+  await expect(
+    page.getByRole("button", { name: "Start local review" }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Files & encoding" }).click();
+  await page
+    .getByLabel("Reference subtitle file")
+    .setInputFiles(
+      subtitleFile("broken-reference.ass", "[Script Info]\nNo events here"),
+    );
+  await page.getByRole("button", { name: "Re-align files" }).click();
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Could not parse reference subtitles" }),
+  ).toBeVisible();
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Keep source-only draft", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Subtitle files" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Start local review" }),
+  ).toBeEnabled();
+  const records = await workspaceRecords(page);
+  expect(records.importState?.failure).toBeNull();
+  expect(records.artifacts.map((artifact) => artifact.name)).toEqual([
+    "source.ass",
+  ]);
+  await page.reload();
+  await expect(
+    page.getByText("No reference file", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Start local review" }).click();
+  await expect(
+    page.getByRole("region", { name: "Evidence", exact: true }),
+  ).toBeVisible();
+});
+
+test("retries a temporary artifact storage failure without reselecting the file", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "Upload subtitle files" }).click();
+  await page.evaluate(() => {
+    const transaction = IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction = function (...args) {
+      if (args[1] === "readwrite") {
+        IDBDatabase.prototype.transaction = transaction;
+        throw new DOMException(
+          "Synthetic storage failure",
+          "QuotaExceededError",
+        );
+      }
+      return transaction.apply(this, args);
+    };
+  });
+  await page
+    .getByLabel("Source subtitle file")
+    .setInputFiles(subtitleFile("source.ass", ASS_SOURCE));
+  await expect(
+    page
+      .getByRole("dialog", { name: "Subtitle files" })
+      .getByRole("alert")
+      .filter({ hasText: "Browser storage is unavailable" }),
+  ).toBeVisible();
+  expect((await workspaceRecords(page)).artifacts).toHaveLength(0);
+  await page.getByRole("button", { name: "Parse files" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Paired lines" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Paired lines" }),
+  ).toBeVisible();
+  expect(
+    (await workspaceRecords(page)).artifacts.map((artifact) => artifact.name),
+  ).toEqual(["source.ass"]);
+});
+
 test("confirmed Clear removes review, import, and artifacts but keeps speaker settings", async ({
   page,
 }) => {

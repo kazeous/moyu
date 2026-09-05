@@ -343,11 +343,16 @@ export function SubtitleAlignmentWorkspace({
     controller.state.kind === "idle"
       ? controller.state.restoredImport
       : controller.state.importState;
+  const configurationMatchesDraft =
+    importState?.source.artifactId === draft.sourceArtifactId &&
+    importState?.reference?.artifactId === draft.referenceArtifactId &&
+    importState?.source.language === draft.sourceLanguage &&
+    (!importState.reference ||
+      importState.reference.language === draft.referenceLanguage);
   const ready =
     isSubtitleDraftReady(draft) &&
     !importState?.failure &&
-    importState?.source.artifactId === draft.sourceArtifactId &&
-    importState?.reference?.artifactId === draft.referenceArtifactId;
+    configurationMatchesDraft;
   const sourceFile = controller.artifactById(draft.sourceArtifactId);
   const referenceFile = draft.referenceArtifactId
     ? controller.artifactById(draft.referenceArtifactId)
@@ -450,6 +455,16 @@ export function SubtitleAlignmentWorkspace({
               <AlertDescription>
                 Open Files &amp; encoding to retry or keep the previous parsed
                 file.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {!configurationMatchesDraft && !importState?.failure ? (
+            <Alert>
+              <AlertTitle>File settings changed</AlertTitle>
+              <AlertDescription>
+                Open Files &amp; encoding and choose Re-align files to apply
+                your selected files, languages, and encodings before starting
+                review.
               </AlertDescription>
             </Alert>
           ) : null}

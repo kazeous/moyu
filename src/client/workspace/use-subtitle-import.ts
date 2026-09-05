@@ -519,12 +519,26 @@ export function useSubtitleImport({
     await persistence.settle();
     if (latestOperationRef.current !== operationId) return;
     if (storageFailureRef.current) {
-      commitState({
-        kind: "configuring",
-        importState: current,
-        errors: slotError("source", storageFailureRef.current),
-      });
-      return;
+      const retainedIds = referencedSubtitleArtifactIds(current);
+      const retry = await persistImport(
+        current,
+        artifactsRef.current.filter((artifact) => retainedIds.has(artifact.id)),
+      );
+      if (latestOperationRef.current !== operationId) return;
+      if (retry.kind !== "saved") {
+        latestOperationRef.current = null;
+        commitState({
+          kind: "configuring",
+          importState: current,
+          errors: slotError(
+            "source",
+            retry.kind === "unavailable"
+              ? retry.reason
+              : "The local subtitle import could not be saved.",
+          ),
+        });
+        return;
+      }
     }
 
     let worker: SubtitleWorkerClient;
@@ -685,30 +699,34 @@ export function useSubtitleImport({
       role === "source"
         ? current.source.artifactId
         : current.reference?.artifactId;
-    if (!previousArtifactId || !failedArtifactId) return;
+    if (!failedArtifactId) return;
     const nextImport: PersistedSubtitleImport =
       role === "source"
         ? {
             ...current,
             source: {
-              artifactId: previousArtifactId,
+              artifactId: draft.sourceArtifactId,
               language: draft.sourceLanguage,
             },
             failure: null,
           }
         : {
             ...current,
-            reference: {
-              artifactId: previousArtifactId,
-              language: draft.referenceLanguage,
-            },
+            reference: previousArtifactId
+              ? {
+                  artifactId: previousArtifactId,
+                  language: draft.referenceLanguage,
+                }
+              : null,
             failure: null,
           };
     const deleteArtifactIds =
       failedArtifactId === previousArtifactId ? [] : [failedArtifactId];
     const result = await persistImport(nextImport, [], deleteArtifactIds);
     if (result.kind !== "saved") return;
-    const restoredArtifact = artifactById(previousArtifactId);
+    const restoredArtifact = previousArtifactId
+      ? artifactById(previousArtifactId)
+      : null;
     if (role === "source") {
       setSourceLanguageState(draft.sourceLanguage);
       if (restoredArtifact)
@@ -775,6 +793,9 @@ export function useSubtitleImport({
       current.failure ||
       current.source.artifactId !== current.draft.sourceArtifactId ||
       current.reference?.artifactId !== current.draft.referenceArtifactId ||
+      current.source.language !== current.draft.sourceLanguage ||
+      (current.reference !== null &&
+        current.reference.language !== current.draft.referenceLanguage) ||
       !isSubtitleDraftReady(current.draft)
     ) {
       return { kind: "not-ready" };

@@ -263,7 +263,10 @@ export function SubtitleFileDialog({
                   variant="outline"
                 >
                   <RefreshCw data-icon="inline-start" aria-hidden="true" />
-                  Keep previous parsed file
+                  {state.failure.role === "reference" &&
+                  !importState?.draft?.referenceArtifactId
+                    ? "Keep source-only draft"
+                    : "Keep previous parsed file"}
                 </Button>
               ) : null}
             </AlertDescription>
@@ -279,6 +282,13 @@ export function SubtitleFileDialog({
                 <p key={`${error.role}-${error.message}`}>{error.message}</p>
               ))}
             </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {controller.notice?.tone === "error" ? (
+          <Alert variant="destructive">
+            <AlertTitle>Local storage needs attention</AlertTitle>
+            <AlertDescription>{controller.notice.text}</AlertDescription>
           </Alert>
         ) : null}
 
