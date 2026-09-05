@@ -1,0 +1,32 @@
+CC-CEDICT Chinese–English dictionary — source and redistribution notice
+
+CC-CEDICT is a community-maintained dictionary published by MDBG.
+Contributors: CC-CEDICT contributors.
+Referenced work: CEDICT — Copyright (C) 1997, 1998 Paul Andrew Denisowski.
+Project and published download page, verified 2026-09-05:
+https://www.mdbg.net/chinese/dictionary?page=cedict
+Format and project documentation: https://cc-cedict.org/wiki/
+Published bulk input:
+https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz
+
+CC-CEDICT and this derived dictionary pack are distributed under Creative Commons
+Attribution-ShareAlike 4.0 International (CC BY-SA 4.0), confirmed both on the
+download page and within the downloaded archive's header:
+https://creativecommons.org/licenses/by-sa/4.0/
+Full legal code: https://creativecommons.org/licenses/by-sa/4.0/legalcode.en
+
+Redistribution and adaptation, including commercial use, require appropriate
+credit, a licence link, identification of modifications, share-alike for adapted
+material, and no additional legal or technical restrictions. Preserve this
+copyright/source notice. No endorsement by MDBG or contributors is implied.
+
+Changes by moyu: all published dictionary rows normalized into JSON. Traditional
+and simplified spellings, source numbered pinyin, and complete slash-separated
+glosses retained. No invented POS or readings. Entry ID is cedict: followed by the
+SHA256 of the upstream row in UTF-8 without its newline. Gzip compression added.
+
+The manifest records release, compressed size, SHA256 and entry count. Pinned
+source metadata and rebuild instructions are in scripts/lexical/ of the source
+distribution. Updates require manual source/license review, new pinned hashes,
+normalizer tests and immutable versioned filenames. No automatic upstream lookup
+or download occurs during dialogue analysis. No licence-imposed update schedule.
