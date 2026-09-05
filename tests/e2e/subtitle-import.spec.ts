@@ -794,27 +794,40 @@ test("the file modal confirms draft Clear and supports keyboard cancellation", a
   expect((await workspaceRecords(page)).counts["subtitle-artifacts"]).toBe(0);
 });
 
-test("subtitle requests contain no local file or cue data", async ({
+test("never sends subtitle files or derived data through the full local workflow", async ({
   page,
 }) => {
-  const requests: string[] = [];
+  const outgoing: { url: string; serialized: string }[] = [];
   await page.goto("/workspace");
   await expect(page.getByLabel("Paste dialogue")).toBeVisible();
   page.on("request", (request) => {
-    requests.push(
-      `${decodeURIComponent(request.url())}\n${JSON.stringify(request.headers())}\n${request.postData() ?? ""}`,
-    );
+    outgoing.push({
+      url: request.url(),
+      serialized: `${decodeURIComponent(request.url())}\n${request.method()}\n${JSON.stringify(request.headers())}\n${request.postData() ?? ""}`,
+    });
   });
+  const privateSource = ASS_SOURCE.replace("玲奈", "秘密話者-91")
+    .replace("我已經等了很久", "秘密字幕-7e91")
+    .replace("這是第一架機體", "BYTE-MARKER-a61c");
+  const privateReference = SRT_REFERENCE.replace(
+    "Tôi đã đợi rất lâu rồi.",
+    "Private reference 3b42",
+  );
   await page.getByRole("button", { name: "Upload subtitle files" }).click();
   await page
     .getByLabel("Source subtitle file")
-    .setInputFiles(subtitleFile("private-byte-sentinel-947.ass", ASS_SOURCE));
+    .setInputFiles(subtitleFile("private-source-7e91.ass", privateSource));
   await page
     .getByLabel("Reference subtitle file")
     .setInputFiles(
-      subtitleFile("private-reference-sentinel-947.srt", SRT_REFERENCE),
+      subtitleFile("private-reference-3b42.srt", privateReference),
     );
   await page.getByRole("button", { name: "Parse files" }).click();
+  await expect(page.getByText("秘密字幕-7e91", { exact: true })).toBeVisible();
+  await expect(page.getByText("秘密話者-91", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Private reference 3b42", { exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("article", { name: "Alignment group 1", exact: true })
     .getByRole("button", { name: "Keep source-only", exact: true })
@@ -824,7 +837,13 @@ test("subtitle requests contain no local file or cue data", async ({
     .click();
   await saveDraft(page);
   await page.reload();
+  await expect(
+    page.getByText("1 reference cue explicitly ignored."),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Start local review" }).click();
+  await expect(
+    page.getByRole("region", { name: "Continuous dialogue review" }),
+  ).toContainText("BYTE-MARKER-a61c");
   await page
     .getByRole("button", { name: "Clear session", exact: true })
     .click();
@@ -832,24 +851,87 @@ test("subtitle requests contain no local file or cue data", async ({
     .getByRole("button", { name: "Clear local session", exact: true })
     .click();
   await expect(page.getByLabel("Paste dialogue")).toBeVisible();
+  expect((await workspaceRecords(page)).counts).toMatchObject({
+    sessions: 0,
+    "subtitle-imports": 0,
+    "subtitle-artifacts": 0,
+  });
   for (const marker of [
-    "private-byte-sentinel-947",
-    "private-reference-sentinel-947",
-    "我已經等了很久",
-    "Tôi đã đợi rất lâu rồi.",
-    "玲奈",
+    "private-source-7e91.ass",
+    "private-reference-3b42.srt",
+    "秘密字幕-7e91",
+    "Private reference 3b42",
+    "秘密話者-91",
+    "BYTE-MARKER-a61c",
     "0:00:01.00",
     "sourceCueIds",
     "ignoredReferenceCueIds",
-    ASS_SOURCE,
-    SRT_REFERENCE,
+    privateSource,
+    privateReference,
   ]) {
     expect(
-      requests.some((request) => request.includes(marker)),
+      outgoing.some((request) => request.serialized.includes(marker)),
       marker,
     ).toBe(false);
   }
-  expect(requests.some((request) => request.includes("/api/"))).toBe(false);
+  expect(
+    outgoing.filter((request) =>
+      new URL(request.url).pathname.startsWith("/api/"),
+    ),
+  ).toEqual([]);
+});
+
+test("parses and reviews local subtitles offline after the worker is loaded", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/workspace");
+  const workerCreated = page.waitForEvent("worker");
+  await page.getByRole("button", { name: "Upload subtitle files" }).click();
+  const worker = await workerCreated;
+  // Evaluation waits for the real worker execution context, without replacing its processor.
+  await worker.evaluate(() => self.location.href);
+  await expect(
+    page.getByRole("dialog", { name: "Subtitle files" }),
+  ).toBeVisible();
+  await context.setOffline(true);
+  const processingRequests: string[] = [];
+  page.on("request", (request) => processingRequests.push(request.url()));
+  try {
+    await page
+      .getByLabel("Source subtitle file")
+      .setInputFiles(subtitleFile("offline-local.srt", UNMATCHED_SOURCE));
+    await page
+      .getByRole("button", { name: "Parse files", exact: true })
+      .click();
+    const group = page.getByRole("article", {
+      name: "Alignment group 1",
+      exact: true,
+    });
+    await expect(group).toContainText("未対応の声");
+    await group
+      .getByRole("button", { name: "Keep source-only", exact: true })
+      .click();
+    await saveDraft(page);
+    await page
+      .getByRole("button", { name: "Start local review", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Continuous dialogue review" }),
+    ).toContainText("未対応の声");
+    expect((await workspaceRecords(page)).counts).toMatchObject({
+      sessions: 1,
+      "subtitle-imports": 1,
+      "subtitle-artifacts": 1,
+    });
+    expect(
+      processingRequests.filter((url) =>
+        new URL(url).pathname.startsWith("/api/"),
+      ),
+    ).toEqual([]);
+  } finally {
+    await context.setOffline(false);
+  }
 });
 
 test("keeps paste and adds a mixed-format local subtitle workflow", async ({
@@ -901,4 +983,168 @@ test("source-only upload still enters the mandatory preview", async ({
   await expect(
     page.getByText("No reference file", { exact: true }),
   ).toBeVisible();
+});
+
+const SPEAKERLESS_SRT_SOURCE = `1
+00:00:01,000 --> 00:00:03,000
+SOURCE-SRT-TEXT-UNCHANGED-517`;
+
+const SPEAKERED_ASS_REFERENCE = `[Events]
+Format: Start, End, Actor, Text
+Dialogue: 0:00:01.00,0:00:03.00,REFERENCE-ATTACHED-SPEAKER-517,REFERENCE-ATTACHED-TEXT-UNCHANGED-517
+Dialogue: 0:00:07.00,0:00:08.00,REFERENCE-UNASSIGNED-SPEAKER-517,REFERENCE-UNASSIGNED-TEXT-UNCHANGED-517`;
+
+async function importSpeakeredAssReference(page: Page) {
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "Upload subtitle files" }).click();
+  await page
+    .getByLabel("Source subtitle file")
+    .setInputFiles(
+      subtitleFile("speakerless-source-517.srt", SPEAKERLESS_SRT_SOURCE),
+    );
+  await page
+    .getByLabel("Reference subtitle file")
+    .setInputFiles(
+      subtitleFile("speakered-reference-517.ass", SPEAKERED_ASS_REFERENCE),
+    );
+  await page.getByRole("button", { name: "Parse files", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "PAIRED LINES" }),
+  ).toBeVisible();
+}
+
+async function storedReviewSourceSpeakers(page: Page) {
+  return page.evaluate(
+    () =>
+      new Promise<readonly string[] | undefined>((resolve, reject) => {
+        const opening = indexedDB.open("moyu-local-review");
+        opening.onerror = () => reject(opening.error);
+        opening.onsuccess = () => {
+          const db = opening.result;
+          const transaction = db.transaction("sessions", "readonly");
+          const request = transaction.objectStore("sessions").get("active");
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const session = request.result as
+              | {
+                  lines?: readonly {
+                    subtitle?: { speakers?: readonly string[] };
+                  }[];
+                }
+              | undefined;
+            resolve(session?.lines?.[0]?.subtitle?.speakers);
+          };
+          transaction.oncomplete = () => db.close();
+        };
+      }),
+  );
+}
+
+test("reference ASS speaker preference covers attached, unassigned, and nearby desktop cues", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await importSpeakeredAssReference(page);
+
+  const attached = page.getByRole("article", {
+    name: "Alignment group 1",
+    exact: true,
+  });
+  const tray = page.getByRole("complementary", {
+    name: "Unassigned references",
+    exact: true,
+  });
+  await expect(attached).toContainText("REFERENCE-ATTACHED-SPEAKER-517");
+  await expect(tray).toContainText("REFERENCE-UNASSIGNED-SPEAKER-517");
+
+  await attached
+    .getByRole("button", { name: "Choose nearby cue", exact: true })
+    .click();
+  const nearby = page.getByRole("dialog", {
+    name: "Choose nearby cue",
+    exact: true,
+  });
+  await expect(nearby).toContainText("REFERENCE-UNASSIGNED-SPEAKER-517");
+  await page.keyboard.press("Escape");
+
+  const toggle = page.getByLabel("Show speaker names");
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(
+    page.getByText("REFERENCE-ATTACHED-SPEAKER-517", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("REFERENCE-UNASSIGNED-SPEAKER-517", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("SOURCE-SRT-TEXT-UNCHANGED-517", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("REFERENCE-ATTACHED-TEXT-UNCHANGED-517", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("REFERENCE-UNASSIGNED-TEXT-UNCHANGED-517", { exact: true }),
+  ).toBeVisible();
+
+  await saveDraft(page);
+  await page.reload();
+  await expect(page.getByLabel("Show speaker names")).not.toBeChecked();
+  expect((await workspaceRecords(page)).preference).toEqual({
+    showSpeakerNames: false,
+  });
+  await expect(
+    page.getByText("SOURCE-SRT-TEXT-UNCHANGED-517", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("REFERENCE-ATTACHED-TEXT-UNCHANGED-517", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByLabel("Show speaker names").click();
+  await expect(attached).toContainText("REFERENCE-ATTACHED-SPEAKER-517");
+  await expect(tray).toContainText("REFERENCE-UNASSIGNED-SPEAKER-517");
+  await page
+    .getByRole("button", { name: "Ignore reference cue 2", exact: true })
+    .click();
+  await saveDraft(page);
+  await page
+    .getByRole("button", { name: "Start local review", exact: true })
+    .click();
+  const review = page.getByRole("region", {
+    name: "Continuous dialogue review",
+    exact: true,
+  });
+  await expect(review).toContainText("SOURCE-SRT-TEXT-UNCHANGED-517");
+  await expect(review).toContainText("REFERENCE-ATTACHED-TEXT-UNCHANGED-517");
+  await expect(review).not.toContainText("REFERENCE-ATTACHED-SPEAKER-517");
+  expect(await storedReviewSourceSpeakers(page)).toEqual([]);
+});
+
+test("reference ASS speaker preference covers the mobile unassigned tray", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 760 });
+  await importSpeakeredAssReference(page);
+  await expect(
+    page.getByRole("article", {
+      name: "Alignment group 1",
+      exact: true,
+    }),
+  ).toContainText("REFERENCE-ATTACHED-SPEAKER-517");
+
+  await page
+    .getByRole("button", { name: "Unassigned references (1)", exact: true })
+    .click();
+  const sheet = page.getByRole("dialog", {
+    name: "Unassigned references",
+    exact: true,
+  });
+  await expect(sheet).toContainText("REFERENCE-UNASSIGNED-SPEAKER-517");
+  await sheet.getByLabel("Show speaker names").click();
+  await expect(
+    page.getByText("REFERENCE-ATTACHED-SPEAKER-517", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("REFERENCE-UNASSIGNED-SPEAKER-517", { exact: true }),
+  ).toHaveCount(0);
+  await expect(sheet).toContainText("REFERENCE-UNASSIGNED-TEXT-UNCHANGED-517");
 });

@@ -3,23 +3,13 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL, URL } from "node:url";
 import postgres from "postgres";
 import { z } from "zod";
+import { forbiddenReviewContentKeys as forbiddenKeys } from "./review-content-keys.mjs";
 import * as metadataContracts from "../src/server/metadata-contract.ts";
 import { parseEnv } from "../src/server/env.ts";
 import {
   checkMigrationReadiness,
   readGeneratedMigrations,
 } from "../src/server/db/migration-readiness.ts";
-
-const forbiddenKeys = new Set([
-  "dialogue",
-  "translation",
-  "image",
-  "ocrText",
-  "analysis",
-  "tokenization",
-  "lookupResults",
-  "selectionHistory",
-]);
 
 function assertAllowedKey(key) {
   if (forbiddenKeys.has(key))

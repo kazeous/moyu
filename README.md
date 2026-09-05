@@ -1,8 +1,8 @@
 # moyu
 
-moyu is a hosted Japanese/Chinese dialogue review app with English/Vietnamese references. It implements accounts, password and email magic-link sign-in, private work tags, phrases/glosses and settings, plus a browser-only dialogue workspace. OCR, lexical processing and installable/offline PWA support are subsequent work.
+moyu is a hosted Japanese/Chinese dialogue review app with English/Vietnamese references. It implements accounts, password and email magic-link sign-in, private work tags, phrases/glosses and settings, plus a browser-only dialogue workspace with paste and subtitle-file import. OCR, lexical processing and a fully installable/offline PWA shell are subsequent work.
 
-Imported dialogue, reference translations, images, OCR, tokenization, lookup results and selection history belong only in the browser. They must never enter API payloads, PostgreSQL, logs, analytics or error reports. The server stores authentication and personal terminology/settings metadata only; every metadata operation enforces the authenticated owner.
+Imported dialogue, reference translations, subtitle file names and bytes, all derived subtitle data (including decoded text, parsed cues, speaker names, timing data, warnings and alignment decisions), images, OCR, tokenization, lookup results and selection history belong only in the browser. They must never enter API payloads, server actions, PostgreSQL, logs, analytics, telemetry or error reports. The server stores authentication and personal terminology/settings metadata only; every metadata operation enforces the authenticated owner.
 
 ## Local development
 
@@ -22,7 +22,17 @@ The example SMTP settings are development placeholders. Password sign-in works w
 
 ## Browser-only dialogue review
 
-Open `/workspace` (or follow **Open workspace** from `/`) and paste Japanese or Chinese dialogue. Choose source-only import or alternating source/reference pairs, correct the proposed pairs, then start the review. The original pasted text, corrected pairs, active line and evidence-panel width are stored only in IndexedDB in that browser. Clear session requires confirmation and removes the local IndexedDB record.
+Open `/workspace` (or follow **Open workspace** from `/`) and choose either paste or **Upload subtitle files**.
+
+Paste accepts Japanese or Chinese dialogue as source-only text or alternating source/reference pairs. Correct the proposed Japanese/Chinese plus English/Vietnamese pairing before starting review.
+
+Subtitle import requires one Japanese or Chinese source `.srt` or `.ass` file and accepts an optional English or Vietnamese reference `.srt` or `.ass` file. Source and reference formats are independent, so mixed `.srt`/`.ass` imports work. Each file may be at most 25 MiB; moyu imposes no cue-count limit. A UTF-8, UTF-16LE or UTF-16BE BOM selects the corresponding decoder. Without a BOM, decoding is strict UTF-8. If that fails, choose Shift-JIS, GB18030 or Big5 manually for the affected file; moyu does not guess a legacy encoding or replace invalid bytes silently.
+
+Files are decoded and parsed in a browser worker, then aligned locally by timestamps. The alignment preview is mandatory even for a source-only import. Accept or correct ambiguous groups, attach unmatched cues or choose **Keep source-only**, and attach or explicitly ignore each unassigned reference before review can start. Confident groups need no extra confirmation. ASS `Name` or `Actor` values remain browser-local metadata; **Show speaker names** controls source and reference labels during alignment and source speaker labels in review without deleting that metadata.
+
+IndexedDB in that browser stores the original pasted text or raw subtitle files, selected encodings, parsed cues and warnings, alignment decisions, active cue or line, evidence-panel width and speaker visibility preference. This lets an unfinished subtitle correction draft or active review resume after reload or browser restart on the same browser. Confirmed **Clear session** atomically removes the active review session, current subtitle draft and its referenced raw subtitle artifacts. It does not remove synced terminology/settings or the browser-local speaker visibility preference, and cleared review content cannot be restored from the server.
+
+Once the workspace page and subtitle worker asset have loaded, subtitle files can be processed locally while the browser is offline. The complete installable/offline PWA shell is still future work, so offline navigation to the app or an offline reload is not supported by this release.
 
 The workspace deliberately shows lexical evidence as unavailable until audited browser-local dictionaries and tokenizers are installed. It never invents readings, lemmas, parts of speech or definitions, and it has no translation or remote-AI fallback. Narrow layouts use a compact line navigator and bottom evidence sheet; desktop layouts keep the navigator, continuous review surface and a resizable evidence pane synchronized.
 
@@ -34,8 +44,8 @@ corepack pnpm test
 # Avoid conflicting inherited NO_COLOR and Playwright FORCE_COLOR flags.
 Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 corepack pnpm test:e2e
-corepack pnpm build
 corepack pnpm verify:workspace
+corepack pnpm build
 ```
 
 Unit/integration tests require the local database to be running and migrated. Readiness tests create and remove an isolated temporary database, so the local test role needs `CREATEDB`. Browser tests reserve app port `3000`, SMTP capture API `3102` and SMTP `3103`; stop any development server first. The production build follows browser tests because Next development regenerates its type paths.
@@ -76,13 +86,15 @@ This release is for a **single application instance**. The in-memory login/regis
 
 No production VM, domain or SMTP provider is configured by this repository. Local ARM runtime validation and the production configuration checks do not prove a live HTTPS ingress or external mail delivery. Perform those target-specific checks during deployment; automated foundation tests never send external email.
 
-## Foundation release gate
+## Release gate
 
-`corepack pnpm verify:workspace` parses the actual client workspace, server and API source trees. It rejects server imports of browser workspace modules, forbidden review-content fields at API boundaries, workspace imports of server modules, and bare or qualified browser workspace use of `fetch`, `sendBeacon`, `EventSource`, `WebSocket` or `XMLHttpRequest`. It also reruns the exported metadata DTO privacy audit, focused workspace unit tests and workspace browser tests. Run it for every dialogue-workspace release in addition to the gates above.
+`corepack pnpm verify:workspace` parses the actual client workspace, including subtitle modules and the subtitle worker, plus the server and API source trees. It rejects server imports of browser workspace modules, forbidden review/subtitle-content fields at API boundaries, workspace imports of server modules, and bare or qualified browser workspace use of `fetch`, `sendBeacon`, `EventSource`, `WebSocket` or `XMLHttpRequest`. It also reruns the exported metadata DTO privacy audit, workspace and subtitle unit tests, and workspace browser tests. Run it for every dialogue-workspace release in addition to the gates above.
 
 `corepack pnpm verify:foundation` checks the **actual exported metadata DTO schemas recursively**, rejects forbidden review-content fields, parses a production HTTPS/auth/SMTP environment, validates generated SQL and the live database migration ledger, checks the live health response, then builds `moyu:foundation` for `linux/arm64` and inspects its actual architecture. It fails on any failed check; it does not generate/apply migrations, start an app or send mail for you. Docker must support ARM64 builds (native or emulated).
 
 For local release validation, configure a separate ignored `.env.release` with the runtime variables, an HTTPS `APP_ORIGIN` such as `https://moyu.example.test`, and real local database credentials. Load it for commands below. SMTP may point to a local capture service because this check validates configuration only.
+
+The complete release gate is formatting, linting, strict type checking, unit/integration tests, browser end-to-end tests, a production build, workspace privacy verification, foundation verification, a `linux/arm64` image build and architecture inspection, migration readiness, and the non-sensitive health check. Run all of these on the release commit; a partial run is not release readiness.
 
 ```powershell
 # Load your ignored release configuration into this PowerShell session.
@@ -91,6 +103,14 @@ Get-Content .env.release | Where-Object { $_ -match '^[A-Z_]+=' } | ForEach-Obje
   Set-Item "Env:$name" $value
 }
 corepack pnpm db:migrate
+corepack pnpm format
+corepack pnpm lint
+corepack pnpm typecheck
+corepack pnpm test
+Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+corepack pnpm test:e2e
+corepack pnpm verify:workspace
+corepack pnpm build
 docker build --platform linux/arm64 -t moyu:foundation .
 docker image inspect moyu:foundation --format '{{.Os}}/{{.Architecture}}'
 # Docker Desktop reaches the host database through host.docker.internal.
@@ -103,6 +123,7 @@ docker run -d --name moyu-release-check --platform linux/arm64 `
   -e DATABASE_URL=postgresql://moyu:moyu@host.docker.internal:5432/moyu `
   moyu:foundation
 $env:FOUNDATION_HEALTH_URL = 'http://127.0.0.1:3100/api/health'
+curl.exe --fail --silent http://127.0.0.1:3100/api/health
 corepack pnpm verify:foundation
 docker inspect moyu-release-check --format '{{.State.Health.Status}}'
 docker stop moyu-release-check

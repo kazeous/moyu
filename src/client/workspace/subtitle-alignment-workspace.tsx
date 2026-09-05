@@ -156,7 +156,7 @@ function AlignmentRow({
               <CueText
                 cue={cue}
                 language={draft.referenceLanguage}
-                showSpeakerNames={false}
+                showSpeakerNames={controller.showSpeakerNames}
               />
               <Button
                 aria-label={`Detach reference cue ${cue.sourceOrder + 1}`}
@@ -280,7 +280,7 @@ function ReferenceTray({
               <CueText
                 cue={cue}
                 language={draft.referenceLanguage}
-                showSpeakerNames={false}
+                showSpeakerNames={controller.showSpeakerNames}
               />
               <div className="workspace__correction-actions">
                 <Button
@@ -586,7 +586,7 @@ export function SubtitleAlignmentWorkspace({
                   <CueText
                     cue={cue}
                     language={draft.referenceLanguage}
-                    showSpeakerNames={false}
+                    showSpeakerNames={controller.showSpeakerNames}
                   />
                   <Button
                     aria-label={`Use reference cue ${cue.sourceOrder + 1} as match`}

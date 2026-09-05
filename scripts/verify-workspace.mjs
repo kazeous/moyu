@@ -4,22 +4,13 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 import { assertMetadataContracts } from "./verify-foundation.mjs";
+import { forbiddenReviewContentKeys } from "./review-content-keys.mjs";
 
 const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".ts", ".tsx"]);
 const networkConstructors = new Set([
   "EventSource",
   "WebSocket",
   "XMLHttpRequest",
-]);
-const forbiddenReviewContentKeys = new Set([
-  "dialogue",
-  "translation",
-  "image",
-  "ocrText",
-  "analysis",
-  "tokenization",
-  "lookupResults",
-  "selectionHistory",
 ]);
 
 function scriptKindFor(filePath) {
