@@ -1,5 +1,6 @@
 import { createPhrase, listPhrases } from "@/server/db/repositories/phrases";
 import { createPhraseInputSchema } from "@/server/metadata-contract";
+import { optionalUuidHeader } from "@/server/http/session";
 import {
   metadataRead,
   metadataMutation,
@@ -15,6 +16,13 @@ export const POST = (request: Request) =>
   metadataMutation(
     request,
     createPhraseInputSchema,
-    async (owner, input) => presentPhrase(await createPhrase(owner, input)),
+    async (owner, input) =>
+      presentPhrase(
+        await createPhrase(
+          owner,
+          input,
+          optionalUuidHeader(request, "Idempotency-Key"),
+        ),
+      ),
     201,
   );
