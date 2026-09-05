@@ -18,6 +18,18 @@ import {
 } from "./contracts";
 import type { PendingPhraseStore } from "./pending-store";
 
+function canonicalConfirmedPhrase(input: ConfirmedPhrase): string {
+  return JSON.stringify({
+    sourcePhrase: input.sourcePhrase,
+    language: input.language,
+    note: input.note ?? null,
+    glosses: [...input.glosses].sort((a, b) =>
+      a.language.localeCompare(b.language),
+    ),
+    workTagIds: [...new Set(input.workTagIds)].sort(),
+  });
+}
+
 export type LibrarySnapshot = {
   status: "idle" | "ready" | "sign-in" | "unavailable" | "account-changed";
   busy: boolean;
@@ -26,7 +38,14 @@ export type LibrarySnapshot = {
   phrases: PersonalPhrase[];
   tags: PersonalTag[];
   pending: PendingPhrase[];
+  pendingWarning: string | null;
 };
+
+function pendingWarning(hasUnreadableRecords: boolean): string | null {
+  return hasUnreadableRecords
+    ? "Some saved edits cannot be read and remain unchanged on this device. Valid edits are available. Recheck saved edits to try reading them again."
+    : null;
+}
 
 export function createPersonalLibrary({
   fetcher,
@@ -43,6 +62,7 @@ export function createPersonalLibrary({
     phrases: [],
     tags: [],
     pending: [],
+    pendingWarning: null,
   };
   const listeners = new Set<() => void>();
   let generation = 0;
@@ -84,7 +104,13 @@ export function createPersonalLibrary({
             ? "Account changed. Load your personal library again. Unsynced edits remain with their original account."
             : "Personal library unavailable. Unsynced edits remain on this device; retry explicitly.",
       ...(status === "account-changed" || status === "sign-in"
-        ? { account: null, phrases: [], tags: [], pending: [] }
+        ? {
+            account: null,
+            phrases: [],
+            tags: [],
+            pending: [],
+            pendingWarning: null,
+          }
         : {}),
     });
   }
@@ -93,7 +119,7 @@ export function createPersonalLibrary({
     update({ busy: true });
     try {
       const account = await request("/api/me", accountSchema);
-      const [phrases, tags, pending] = await Promise.all([
+      const [phrases, tags, savedEdits] = await Promise.all([
         request("/api/me/phrases", z.array(phraseSchema), account.id),
         request("/api/me/work-tags", z.array(tagSchema), account.id),
         store.list(account.id),
@@ -106,10 +132,33 @@ export function createPersonalLibrary({
         account,
         phrases,
         tags,
-        pending,
+        pending: savedEdits.pending,
+        pendingWarning: pendingWarning(savedEdits.hasUnreadableRecords),
       });
     } catch (error) {
       if (generation === version) failure(error);
+    }
+  }
+  async function recheckPending() {
+    if (!snapshot.account || snapshot.busy) return;
+    const ownerId = snapshot.account.id;
+    const version = generation;
+    update({ busy: true });
+    try {
+      const savedEdits = await store.list(ownerId);
+      if (generation !== version || snapshot.account?.id !== ownerId) return;
+      update({
+        busy: false,
+        pending: savedEdits.pending,
+        pendingWarning: pendingWarning(savedEdits.hasUnreadableRecords),
+      });
+    } catch {
+      if (generation === version)
+        update({
+          busy: false,
+          pendingWarning:
+            "Saved edits cannot be checked right now. They remain on this device. Recheck saved edits to retry.",
+        });
     }
   }
   async function sendPending(record: PendingPhrase, version: number) {
@@ -153,7 +202,8 @@ export function createPersonalLibrary({
       const record = snapshot.pending.find(
         (value) =>
           value.ownerId === ownerId &&
-          JSON.stringify(value.input) === JSON.stringify(parsed),
+          canonicalConfirmedPhrase(value.input) ===
+            canonicalConfirmedPhrase(parsed),
       ) ?? { id: crypto.randomUUID(), ownerId, input: parsed };
       await store.put(record);
       if (generation !== version) return false;
@@ -229,6 +279,7 @@ export function createPersonalLibrary({
     load,
     savePhrase,
     retryPhrase,
+    recheckPending,
     addTag,
   };
 }

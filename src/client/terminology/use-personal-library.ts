@@ -36,6 +36,7 @@ export function usePersonalLibrary() {
     load: controller.load,
     savePhrase: controller.savePhrase,
     retryPhrase: controller.retryPhrase,
+    recheckPending: controller.recheckPending,
     addTag: controller.addTag,
   };
 }

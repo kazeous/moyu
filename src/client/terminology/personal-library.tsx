@@ -173,6 +173,21 @@ export function PersonalLibrary({
           <p className="text-sm">Account: {library.account.displayName}</p>
         )}
         {library.status === "sign-in" && <Link href="/sign-in">Sign in</Link>}
+        {library.pendingWarning && (
+          <>
+            <p role="alert" className="text-sm text-muted-foreground">
+              {library.pendingWarning}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={library.busy}
+              onClick={() => void library.recheckPending()}
+            >
+              Recheck saved edits
+            </Button>
+          </>
+        )}
         <Button
           type="button"
           variant="outline"

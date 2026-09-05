@@ -42,10 +42,18 @@ export function createPendingPhraseStore(indexedDb: IDBFactory | undefined) {
       const records: unknown = await transact("readonly", (store) =>
         store.getAll(),
       );
-      return z
-        .array(pendingPhraseSchema)
-        .parse(records)
-        .filter((record) => record.ownerId === ownerId);
+      const pending: PendingPhrase[] = [];
+      let hasUnreadableRecords = false;
+      for (const record of z.array(z.unknown()).parse(records)) {
+        const parsed = pendingPhraseSchema.safeParse(record);
+        if (!parsed.success) {
+          hasUnreadableRecords = true;
+        } else if (parsed.data.ownerId === ownerId) {
+          pending.push(parsed.data);
+        }
+      }
+      // Read-only recovery: invalid rows stay intact and are never sent or shown.
+      return { pending, hasUnreadableRecords };
     },
     async put(record: PendingPhrase) {
       const parsed = pendingPhraseSchema.parse(record);
