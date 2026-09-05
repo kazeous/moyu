@@ -113,7 +113,7 @@ test("dialogue import stays local, survives reload, and clears only on confirmat
 
   await expect(
     page.getByRole("heading", {
-      name: "2 local dialogue entries",
+      name: "PAIRED LINES",
       exact: true,
     }),
   ).toBeVisible();
@@ -241,6 +241,10 @@ test("user scroll intent releases an unfinished programmatic scroll", async ({
     HTMLElement.prototype.scrollIntoView = () => undefined;
   });
   await page.getByRole("button", { name: "60 会話 60", exact: true }).click();
+  await expect(page.locator("article").nth(59)).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
 
   const surface = page.getByRole("region", {
     name: "Continuous dialogue review",
@@ -254,7 +258,11 @@ test("user scroll intent releases an unfinished programmatic scroll", async ({
         ".workspace__review-surface",
       );
       if (!reviewSurface) throw new Error("Review surface is missing");
-      reviewSurface.scrollTop += element.getBoundingClientRect().top - 108;
+      reviewSurface.scrollTo({
+        top:
+          reviewSurface.scrollTop + element.getBoundingClientRect().top - 108,
+        behavior: "instant",
+      });
     });
 
   await expect(

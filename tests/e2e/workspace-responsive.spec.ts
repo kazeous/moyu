@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ASS_SOURCE, SRT_REFERENCE, subtitleFile } from "./subtitle-fixtures";
 
 async function importFixture(page: Page) {
   await page.goto("/workspace");
@@ -36,6 +37,136 @@ async function importLongFixture(page: Page) {
 }
 
 for (const width of [320, 375, 414, 768]) {
+  test(`alignment at ${width}px keeps full width and accessible lower sheets`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/workspace");
+    await page.getByRole("button", { name: "Upload subtitle files" }).click();
+    const fileDialog = page.getByRole("dialog", { name: "Subtitle files" });
+    await page
+      .getByLabel("Source subtitle file")
+      .setInputFiles(subtitleFile("source.ass", ASS_SOURCE));
+    await page
+      .getByLabel("Reference subtitle file")
+      .setInputFiles(
+        subtitleFile(
+          "reference.srt",
+          `${SRT_REFERENCE}\n\n3\n00:00:30,000 --> 00:00:31,000\n${"A long unmatched reference sentence. ".repeat(16)}`,
+        ),
+      );
+    for (const control of await fileDialog
+      .locator('[data-slot="input"], [data-slot="select-trigger"], button')
+      .all()) {
+      await control.scrollIntoViewIfNeeded();
+      const bounds = await control.boundingBox();
+      expect(
+        bounds!.height,
+        await control.evaluate(
+          (element) =>
+            `${element.tagName} ${element.getAttribute("data-slot")} ${element.textContent}`,
+        ),
+      ).toBeGreaterThanOrEqual(44);
+      expect(bounds!.width).toBeGreaterThanOrEqual(44);
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    }
+    await page.getByRole("button", { name: "Parse files" }).click();
+    const paired = page.getByRole("main", { name: "Subtitle alignment" });
+    await expect(
+      paired.getByRole("heading", { name: "PAIRED LINES", exact: true }),
+    ).toBeVisible();
+    expect((await paired.boundingBox())!.x).toBeLessThanOrEqual(1);
+    expect((await paired.boundingBox())!.width).toBeGreaterThanOrEqual(
+      width - 2,
+    );
+    await expect(
+      page.getByRole("navigation", { name: "Subtitle cue navigator" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("complementary", { name: "Unassigned references" }),
+    ).not.toBeVisible();
+    const navItems = page
+      .getByRole("navigation", { name: "Subtitle cue navigator" })
+      .getByRole("button");
+    expect((await navItems.nth(0).boundingBox())!.y).toBe(
+      (await navItems.nth(1).boundingBox())!.y,
+    );
+    for (const control of await page
+      .locator(
+        ".workspace__alignment-main button, .workspace__alignment-actions button",
+      )
+      .all()) {
+      await control.scrollIntoViewIfNeeded();
+      const bounds = await control.boundingBox();
+      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    await page
+      .getByRole("button", { name: "Unassigned references (1)", exact: true })
+      .click();
+    const tray = page.getByRole("dialog", {
+      name: "Unassigned references",
+      exact: true,
+    });
+    await expect(tray).toBeVisible();
+    await expect(tray.getByLabel("Show speaker names")).toBeChecked();
+    await tray.getByLabel("Show speaker names").click();
+    await expect(
+      tray.getByRole("region", { name: "Unassigned reference cue 3" }),
+    ).toBeVisible();
+    const ignore = tray.getByRole("button", {
+      name: "Ignore reference cue 3",
+      exact: true,
+    });
+    await ignore.scrollIntoViewIfNeeded();
+    const ignoreBounds = (await ignore.boundingBox())!;
+    expect(ignoreBounds.height).toBeGreaterThanOrEqual(44);
+    expect(ignoreBounds.x).toBeGreaterThanOrEqual(0);
+    expect(ignoreBounds.x + ignoreBounds.width).toBeLessThanOrEqual(width);
+    await expect(ignore).toBeInViewport();
+    expect(
+      await tray.evaluate((element) => element.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    await ignore.click();
+    await expect(
+      tray.getByText("1 reference cue explicitly ignored."),
+    ).toBeVisible();
+    const close = tray.getByRole("button", { name: "Close", exact: true });
+    expect((await close.boundingBox())!.width).toBeGreaterThanOrEqual(44);
+    expect((await close.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", {
+        name: "Unassigned references (0)",
+        exact: true,
+      }),
+    ).toBeFocused();
+    await expect(page.getByText("玲奈", { exact: true })).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Start local review", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Continuous dialogue review" }),
+    ).toBeVisible();
+    for (const control of await page
+      .locator(".workspace__header button, .workspace__header a")
+      .all()) {
+      const bounds = await control.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    }
+    const dimensions = await page.evaluate(() => ({
+      width: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+    }));
+    expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
+  });
+
   test(`${width}px keeps dialogue readable with mobile navigator and evidence drawer`, async ({
     page,
   }) => {
@@ -66,6 +197,56 @@ for (const width of [320, 375, 414, 768]) {
     await expect(page.getByText("Not available yet").last()).toBeVisible();
   });
 }
+
+test("desktop review keeps the compact accepted three-pane hierarchy", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await importFixture(page);
+  const header = await page.locator(".workspace__header").boundingBox();
+  const navigator = page.getByRole("navigation", {
+    name: "Dialogue navigator",
+  });
+  const paired = page.getByRole("region", {
+    name: "Continuous dialogue review",
+  });
+  const evidence = page.getByRole("region", { name: "Evidence", exact: true });
+  const navBounds = (await navigator.boundingBox())!;
+  const pairedBounds = (await paired.boundingBox())!;
+  const evidenceBounds = (await evidence.boundingBox())!;
+  expect(header!.height).toBeGreaterThanOrEqual(48);
+  expect(header!.height).toBeLessThanOrEqual(56);
+  expect(navBounds.x).toBeLessThan(pairedBounds.x);
+  expect(pairedBounds.x).toBeLessThan(evidenceBounds.x);
+  expect(pairedBounds.width).toBeGreaterThan(navBounds.width);
+  expect(pairedBounds.width).toBeGreaterThan(evidenceBounds.width);
+  await expect(
+    paired.getByRole("heading", { name: "PAIRED LINES", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Continuous review", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    navigator.getByRole("heading", { name: "DIALOGUE · 1/2", exact: true }),
+  ).toBeVisible();
+  await expect(
+    evidence.getByRole("heading", { name: "EVIDENCE · 第一架", exact: true }),
+  ).toBeVisible();
+  expect(
+    (await page.locator("article").nth(1).boundingBox())!.height,
+  ).toBeLessThanOrEqual(140);
+  await expect(page.locator("article").nth(1)).toHaveCSS(
+    "border-left-width",
+    "0px",
+  );
+  await expect(page.locator("article").first()).toHaveCSS(
+    "background-color",
+    "rgb(228, 241, 230)",
+  );
+  await expect(
+    page.getByRole("button", { name: "Review alignment", exact: true }),
+  ).toHaveCount(0);
+});
 
 test("320px import controls remain visible and touch sized", async ({
   page,

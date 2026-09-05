@@ -51,6 +51,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -113,7 +114,7 @@ function EvidencePane({ session }: { session: ReviewSession }) {
   if (!activeLine) {
     return (
       <section className="workspace__evidence" aria-label="Evidence">
-        <p className="workspace__eyebrow">Evidence</p>
+        <p className="workspace__eyebrow">EVIDENCE</p>
         <h2>Choose a line to inspect</h2>
         <p className="workspace__muted">
           The evidence panel updates for the selected local line.
@@ -125,12 +126,11 @@ function EvidencePane({ session }: { session: ReviewSession }) {
   return (
     <section className="workspace__evidence" aria-label="Evidence">
       <div className="workspace__evidence-heading">
-        <div>
-          <p className="workspace__eyebrow">Selected line</p>
-          <h2>Line {session.lines.indexOf(activeLine) + 1}</h2>
-        </div>
-        <Badge variant="outline">Local</Badge>
+        <h2 title={activeLine.source || "Blank source line"}>
+          EVIDENCE · <span>{activeLine.source || "Blank source line"}</span>
+        </h2>
       </div>
+      <Separator />
       <dl className="workspace__evidence-source">
         <div>
           <dt>Surface form</dt>
@@ -147,6 +147,7 @@ function EvidencePane({ session }: { session: ReviewSession }) {
           </div>
         ) : null}
       </dl>
+      <Separator />
       <div className="workspace__unavailable" role="status">
         <p className="workspace__eyebrow">Lexical evidence</p>
         <h3>Not available yet</h3>
@@ -562,12 +563,8 @@ function ReviewSurface({
       tabIndex={0}
     >
       <div className="workspace__review-intro">
-        <p className="workspace__eyebrow">Continuous review</p>
-        <h1>
-          {session.lines.length} local dialogue{" "}
-          {session.lines.length === 1 ? "entry" : "entries"}
-        </h1>
-        <p>
+        <h1>PAIRED LINES</h1>
+        <p className="sr-only">
           Select a line, or use the arrow keys while this surface is focused.
         </p>
         {storageMessage ? (
@@ -616,24 +613,24 @@ function ReviewSurface({
               ref={registerLine(line.id)}
             >
               <div className="workspace__line-meta">
-                <span>Line {index + 1}</span>
+                <span>{String(index + 1).padStart(2, "0")}</span>
                 {showSpeakerNames && line.subtitle?.speakers.length ? (
                   <span className="workspace__speaker">
                     {line.subtitle.speakers.join(" · ")}
                   </span>
                 ) : null}
-                {active ? <Badge>Active</Badge> : null}
+                {active ? <Badge variant="outline">Active</Badge> : null}
               </div>
               <div className="workspace__line-text">
                 <p lang={session.sourceLanguage}>
-                  <span className="workspace__language-label">
+                  <span className="workspace__language-label sr-only">
                     {sourceLanguageLabels[session.sourceLanguage]}
                   </span>
                   {line.source || "Blank source line"}
                 </p>
                 {line.reference !== undefined ? (
                   <p lang={session.referenceLanguage}>
-                    <span className="workspace__language-label">
+                    <span className="workspace__language-label sr-only">
                       {referenceLanguageLabels[session.referenceLanguage]}
                     </span>
                     {line.reference || "Blank reference line"}
@@ -650,7 +647,9 @@ function ReviewSurface({
                     size="sm"
                     variant="outline"
                   >
-                    {line.source || "Blank source line"}
+                    <span className="truncate">
+                      {line.source || "Blank source line"}
+                    </span>
                   </Button>
                   <span>
                     Local token evidence is unavailable until language assets
@@ -802,8 +801,19 @@ function ReviewWorkspace({
         <Link className="workspace__brand" href="/" aria-label="moyu home">
           moyu
         </Link>
+        <div className="workspace__session-context">
+          <span>
+            {session.origin.kind === "subtitle"
+              ? "Subtitle review"
+              : "Pasted dialogue"}
+          </span>
+          <span>
+            {sourceLanguageLabels[session.sourceLanguage]} →{" "}
+            {referenceLanguageLabels[session.referenceLanguage]}
+          </span>
+        </div>
         <div className="workspace__header-status">
-          <Badge variant="outline">Local session</Badge>
+          <Badge variant="outline">Local only</Badge>
           {onReviewAlignment ? (
             <Button onClick={onReviewAlignment} size="sm" variant="ghost">
               Review alignment
@@ -813,9 +823,12 @@ function ReviewWorkspace({
             Account
           </Link>
           <AlertDialog onOpenChange={setClearDialogOpen} open={clearDialogOpen}>
-            <AlertDialogTrigger render={<Button size="sm" variant="ghost" />}>
+            <AlertDialogTrigger
+              aria-label="Clear session"
+              render={<Button size="sm" variant="ghost" />}
+            >
               <Trash2 data-icon="inline-start" aria-hidden="true" />
-              Clear session
+              <span className="workspace__clear-label">Clear session</span>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -891,17 +904,22 @@ function ReviewWorkspace({
         >
           <ResizablePanel
             className="workspace__navigator-panel"
-            defaultSize="22%"
+            defaultSize="18%"
             id="navigator"
-            minSize="16%"
+            minSize="14%"
           >
             <nav
               className="workspace__navigator"
               aria-label="Dialogue navigator"
             >
               <div className="workspace__panel-title">
-                <p className="workspace__eyebrow">Navigator</p>
-                <span>{session.lines.length} lines</span>
+                <h2>
+                  DIALOGUE ·{" "}
+                  {session.lines.findIndex(
+                    (line) => line.id === session.activeLineId,
+                  ) + 1}
+                  /{session.lines.length}
+                </h2>
               </div>
               <ScrollArea className="workspace__navigator-scroll">
                 <div className="workspace__navigator-list">

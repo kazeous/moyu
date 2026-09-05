@@ -30,7 +30,7 @@ async function importFiles(page: Page, source: string, reference?: string) {
   }
   await page.getByRole("button", { name: "Parse files" }).click();
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
 }
 
@@ -131,6 +131,211 @@ test("requires explicit outcomes before review and persists ignored references",
   ).toBeEnabled();
 });
 
+test("normal and alignment active rows share the mint semantic treatment", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await importFiles(page, ASS_SOURCE, SRT_REFERENCE);
+  const token = await page.evaluate(() =>
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-accent-wash")
+      .trim(),
+  );
+  expect(token).toBe("#e4f1e6");
+  const rows = page.getByRole("article");
+  await expect(rows.first()).toHaveCSS(
+    "background-color",
+    "rgb(228, 241, 230)",
+  );
+  await expect(rows.nth(1)).not.toHaveCSS(
+    "background-color",
+    "rgb(228, 241, 230)",
+  );
+  await rows
+    .nth(1)
+    .getByRole("button", { name: "Accept grouping", exact: true })
+    .click();
+  await expect(rows.nth(1)).toHaveCSS("background-color", "rgb(228, 241, 230)");
+  await expect(
+    page.getByRole("heading", { name: "CUES · 1/2", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "UNASSIGNED · 0", exact: true }),
+  ).toBeVisible();
+  expect(
+    (await page.locator(".workspace__header").boundingBox())!.height,
+  ).toBeLessThanOrEqual(56);
+  const fileButton = page.getByRole("button", { name: "Files & encoding" });
+  await fileButton.focus();
+  await fileButton.press("Enter");
+  await expect(
+    page.getByRole("dialog", { name: "Subtitle files" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(fileButton).toBeFocused();
+  await page
+    .getByRole("button", { name: "Start local review", exact: true })
+    .click();
+  await expect(page.locator('article[aria-current="true"]')).toHaveCSS(
+    "background-color",
+    "rgb(228, 241, 230)",
+  );
+  await page
+    .getByRole("navigation", { name: "Dialogue navigator" })
+    .getByRole("button")
+    .nth(1)
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "DIALOGUE · 2/2", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "EVIDENCE · 這是第一架機體",
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
+test("alignment reserves amber for unresolved groups and mint for accepted decisions", async ({
+  page,
+}) => {
+  await importFiles(
+    page,
+    `${UNMATCHED_SOURCE}\n\n2\n00:00:04,000 --> 00:00:05,000\n別の声`,
+    UNMATCHED_REFERENCE,
+  );
+  const second = page.getByRole("article", {
+    name: "Alignment group 2",
+    exact: true,
+  });
+  await expect(second).toHaveCSS("background-color", "rgb(245, 237, 220)");
+  await second
+    .getByRole("button", { name: "Keep source-only", exact: true })
+    .click();
+  await expect(second).toHaveCSS("background-color", "rgb(228, 241, 230)");
+});
+
+test("small status text remains readable on amber and mint rows", async ({
+  page,
+}) => {
+  await importFiles(
+    page,
+    `${UNMATCHED_SOURCE}\n\n2\n00:00:04,000 --> 00:00:05,000\n<mystery>別の声</mystery>`,
+    UNMATCHED_REFERENCE,
+  );
+  const row = page.getByRole("article", {
+    name: "Alignment group 2",
+    exact: true,
+  });
+  await expect(row.locator(".workspace__cue-warning")).toBeVisible();
+  for (const decision of ["pending", "source-only"]) {
+    if (decision === "source-only") {
+      await row
+        .getByRole("button", { name: "Keep source-only", exact: true })
+        .click();
+    }
+    for (const label of await row
+      .locator(
+        '[data-slot="badge"], .workspace__cue-warning, .workspace__muted, .workspace__group-summary',
+      )
+      .all()) {
+      const contrast = await label.evaluate((element) => {
+        const context = document.createElement("canvas").getContext("2d")!;
+        function rgba(color: string) {
+          context.clearRect(0, 0, 1, 1);
+          context.fillStyle = color;
+          context.fillRect(0, 0, 1, 1);
+          return [...context.getImageData(0, 0, 1, 1).data];
+        }
+        let background = [255, 255, 255, 255];
+        const ancestors: Element[] = [];
+        for (
+          let current: Element | null = element;
+          current;
+          current = current.parentElement
+        )
+          ancestors.unshift(current);
+        for (const ancestor of ancestors) {
+          const layer = rgba(getComputedStyle(ancestor).backgroundColor);
+          const alpha = layer[3] / 255;
+          background = background.map((channel, index) =>
+            index === 3 ? 255 : layer[index] * alpha + channel * (1 - alpha),
+          );
+        }
+        function luminance(color: number[]) {
+          const channels = color.slice(0, 3).map((channel) => {
+            const value = channel / 255;
+            return value <= 0.04045
+              ? value / 12.92
+              : ((value + 0.055) / 1.055) ** 2.4;
+          });
+          return (
+            channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+          );
+        }
+        const foreground = luminance(rgba(getComputedStyle(element).color));
+        const behind = luminance(background);
+        return (
+          (Math.max(foreground, behind) + 0.05) /
+          (Math.min(foreground, behind) + 0.05)
+        );
+      });
+      expect
+        .soft(contrast, `${decision}: ${await label.textContent()}`)
+        .toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
+for (const width of [1280, 320, 375, 414, 768]) {
+  test(`${width}px workbench keeps keyboard focus and the accepted rendered surfaces`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await importFiles(page, ASS_SOURCE, SRT_REFERENCE);
+    await page.screenshot({
+      path: testInfo.outputPath("alignment.png"),
+      animations: "disabled",
+    });
+    const files = page.getByRole("button", { name: "Files & encoding" });
+    await files.focus();
+    await files.press("Enter");
+    const modal = page.getByRole("dialog", { name: "Subtitle files" });
+    await expect(modal).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath("file-modal.png"),
+      animations: "disabled",
+    });
+    await page.keyboard.press("Escape");
+    await expect(files).toBeFocused();
+    await expect(files).toHaveCSS("outline-style", "solid");
+    await expect(files).toHaveCSS("outline-width", "2px");
+    await page
+      .getByRole("button", { name: "Start local review", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Continuous dialogue review" }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath("review.png"),
+      animations: "disabled",
+    });
+    await page
+      .getByRole("button", { name: "Clear session", exact: true })
+      .click();
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Clear session", exact: true }),
+    ).toBeFocused();
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Continuous dialogue review" }),
+    ).toBeVisible();
+  });
+}
+
 test("accepts, splits, attaches, detaches, and chooses a nearby reference", async ({
   page,
 }) => {
@@ -201,7 +406,7 @@ test("restores draft, encoding, current row, and speaker preference after reload
   await saveDraft(page);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   await expect(page.getByLabel("Show speaker names")).not.toBeChecked();
   await expect(page.getByRole("button", { name: /Cue 2/ })).toHaveAttribute(
@@ -220,7 +425,7 @@ test("restores draft, encoding, current row, and speaker preference after reload
   await expect(page.getByLabel("Paste dialogue")).toBeVisible();
   await page.getByRole("button", { name: "Resume subtitle draft" }).click();
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
 });
 
@@ -310,7 +515,7 @@ test("keeps a usable draft through failed replacement, retries, and reverts only
   ).toBeVisible();
   await page.getByRole("button", { name: "Keep previous parsed file" }).click();
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   await expect(page.getByText("我已經等了很久", { exact: true })).toBeVisible();
   let records = await workspaceRecords(page);
@@ -343,7 +548,7 @@ test("reopens and reapplies a subtitle review without losing Evidence or the pre
   await importFiles(page, ASS_SOURCE, SRT_REFERENCE);
   await page.getByRole("button", { name: "Start local review" }).click();
   await expect(
-    page.getByRole("heading", { name: "2 local dialogue entries" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Evidence", exact: true }),
@@ -373,7 +578,7 @@ test("reopens and reapplies a subtitle review without losing Evidence or the pre
   await expect(page.getByText("玲奈", { exact: true })).toHaveCount(0);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "2 local dialogue entries" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Review alignment", exact: true })
@@ -515,11 +720,11 @@ test("retries a temporary artifact storage failure without reselecting the file"
   expect((await workspaceRecords(page)).artifacts).toHaveLength(0);
   await page.getByRole("button", { name: "Parse files" }).click();
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   expect(
     (await workspaceRecords(page)).artifacts.map((artifact) => artifact.name),
@@ -670,7 +875,7 @@ test("keeps paste and adds a mixed-format local subtitle workflow", async ({
   await page.getByRole("button", { name: "Parse files" }).click();
 
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   await expect(page.getByText("我已經等了很久", { exact: true })).toBeVisible();
   await expect(
@@ -691,7 +896,7 @@ test("source-only upload still enters the mandatory preview", async ({
     .setInputFiles(subtitleFile("source.srt", SRT_REFERENCE));
   await page.getByRole("button", { name: "Parse files" }).click();
   await expect(
-    page.getByRole("heading", { name: "Paired lines" }),
+    page.getByRole("heading", { name: "PAIRED LINES" }),
   ).toBeVisible();
   await expect(
     page.getByText("No reference file", { exact: true }),

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -116,6 +117,7 @@ function AlignmentRow({
       aria-label={`Alignment group ${index + 1}`}
       aria-current={draft.activeGroupId === group.id ? "true" : undefined}
       className="workspace__alignment-row"
+      data-decision={group.decision}
       ref={register}
       tabIndex={-1}
     >
@@ -125,7 +127,7 @@ function AlignmentRow({
           {groupStatus(group)}
         </Badge>
       </header>
-      <p className="workspace__muted">
+      <p className="workspace__group-summary">
         {source.length} source {source.length === 1 ? "cue" : "cues"} ·{" "}
         {reference.length} reference {reference.length === 1 ? "cue" : "cues"}
         {group.confidence !== null
@@ -243,7 +245,7 @@ function ReferenceTray({
   return (
     <>
       <div className="workspace__tray-heading">
-        <h2>Unassigned references</h2>
+        <h2>UNASSIGNED · {reference.length}</h2>
         <p className="workspace__muted">
           {reference.length} to resolve · attaching to group {activeIndex + 1}
         </p>
@@ -262,6 +264,7 @@ function ReferenceTray({
           </FieldLabel>
         </Field>
       </div>
+      <Separator />
       <ScrollArea className="workspace__tray-scroll">
         <div className="workspace__tray-list">
           {reference.length === 0 ? (
@@ -354,6 +357,9 @@ export function SubtitleAlignmentWorkspace({
     !importState?.failure &&
     configurationMatchesDraft;
   const sourceFile = controller.artifactById(draft.sourceArtifactId);
+  const activeGroupIndex = draft.groups.findIndex(
+    (group) => group.id === draft.activeGroupId,
+  );
   const referenceFile = draft.referenceArtifactId
     ? controller.artifactById(draft.referenceArtifactId)
     : null;
@@ -393,6 +399,9 @@ export function SubtitleAlignmentWorkspace({
           <span>{sourceFile?.name ?? "Source subtitles"}</span>
           <span>{referenceFile?.name ?? "No reference file"}</span>
         </div>
+        <Badge className="workspace__alignment-local" variant="outline">
+          Local only
+        </Badge>
         <Button onClick={controller.openFiles} variant="outline">
           <FileText data-icon="inline-start" aria-hidden="true" />
           Files &amp; encoding
@@ -404,8 +413,9 @@ export function SubtitleAlignmentWorkspace({
           className="workspace__cue-navigator"
         >
           <div className="workspace__panel-title">
-            <span>Source cues</span>
-            <Badge variant="outline">Local</Badge>
+            <h2>
+              CUES · {activeGroupIndex + 1}/{draft.groups.length}
+            </h2>
           </div>
           <ScrollArea className="workspace__cue-navigator-scroll">
             <div className="workspace__cue-navigator-list">
@@ -436,11 +446,12 @@ export function SubtitleAlignmentWorkspace({
           className="workspace__alignment-main"
         >
           <div className="workspace__alignment-intro">
-            <p className="workspace__eyebrow">Local correction preview</p>
-            <h1>Paired lines</h1>
+            <h1>PAIRED LINES</h1>
             <p className="workspace__muted">
-              Check timing-based groups. Resolve every unmatched source and
-              reference before review.
+              {draft.sourceCues.length} source cues ·{" "}
+              {draft.referenceCues.length} reference cues ·{" "}
+              {draft.sourceLanguage.toUpperCase()} →{" "}
+              {draft.referenceLanguage.toUpperCase()}
             </p>
           </div>
           {draft.blockingFailures.map((failure, index) => (
@@ -521,7 +532,7 @@ export function SubtitleAlignmentWorkspace({
             </SheetTrigger>
             <SheetContent className="workspace__reference-sheet" side="bottom">
               <SheetHeader>
-                <SheetTitle>Reference tray</SheetTitle>
+                <SheetTitle>Unassigned references</SheetTitle>
                 <SheetDescription>
                   Attach to the active source group or explicitly ignore each
                   reference.
