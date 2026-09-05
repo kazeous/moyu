@@ -184,6 +184,17 @@ export function PersonalLibrary({
       </div>
       {library.account && (
         <>
+          {preferred.length > 0 && (
+            <div
+              className="flex flex-col gap-3"
+              aria-label="Preferred personal matches"
+            >
+              <h4>Preferred personal matches</h4>
+              {preferred.map((phrase) => (
+                <PhraseDetails key={phrase.id} phrase={phrase} />
+              ))}
+            </div>
+          )}
           <FieldSet>
             <FieldLegend>Active work tags</FieldLegend>
             <FieldDescription>
@@ -240,17 +251,6 @@ export function PersonalLibrary({
               </Button>
             </FieldGroup>
           </form>
-          {preferred.length > 0 && (
-            <div
-              className="flex flex-col gap-3"
-              aria-label="Preferred personal matches"
-            >
-              <h4>Preferred personal matches</h4>
-              {preferred.map((phrase) => (
-                <PhraseDetails key={phrase.id} phrase={phrase} />
-              ))}
-            </div>
-          )}
           <Separator />
           {sourcePhrase ? (
             <PhraseForm

@@ -3,12 +3,13 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import type { PhraseMatchInput } from "../lexical/contracts";
 import { createPersonalLibrary } from "./library";
+import { defaultLibraryFetcher } from "./api";
 import { createPendingPhraseStore } from "./pending-store";
 
 export function usePersonalLibrary() {
   const [controller] = useState(() =>
     createPersonalLibrary({
-      fetcher: (url, init) => fetch(url, init),
+      fetcher: defaultLibraryFetcher,
       store: createPendingPhraseStore(
         typeof indexedDB === "undefined" ? undefined : indexedDB,
       ),

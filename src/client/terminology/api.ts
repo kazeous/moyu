@@ -4,6 +4,9 @@ export type LibraryFetcher = (
   url: string,
   init?: RequestInit,
 ) => Promise<Response>;
+export const defaultLibraryFetcher: LibraryFetcher = (url, init) =>
+  fetch(url, init);
+
 export class LibraryRequestError extends Error {
   constructor(public readonly status: number) {
     super("Personal library request failed.");
