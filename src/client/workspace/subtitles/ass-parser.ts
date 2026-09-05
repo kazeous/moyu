@@ -65,22 +65,56 @@ function deriveAssVisibleText(rawText: string): {
   warnings: SubtitleWarning[];
 } {
   const withoutBalancedOverrides = rawText.replace(/\{[^{}]*\}/gu, "");
-  const visibleText = withoutBalancedOverrides
+  const hasMalformedOverride = /[{}]/u.test(withoutBalancedOverrides);
+  let hasMalformedDrawingScale = false;
+  let drawingScale = 0;
+  let cursor = 0;
+  const visibleParts: string[] = [];
+
+  if (!hasMalformedOverride) {
+    for (const match of rawText.matchAll(/\{([^{}]*)\}/gu)) {
+      if (drawingScale === 0) {
+        visibleParts.push(rawText.slice(cursor, match.index));
+      }
+
+      const commands = match[1] ?? "";
+      for (const drawingCommand of commands.matchAll(
+        /\\p\s*([+-]?\d+)(?=\\|$|\s)/giu,
+      )) {
+        const scale = drawingCommand[1] ?? "";
+        if (scale.startsWith("-")) {
+          hasMalformedDrawingScale = true;
+          continue;
+        }
+        drawingScale = Number(scale);
+      }
+      cursor = (match.index ?? 0) + match[0].length;
+    }
+
+    if (drawingScale === 0) {
+      visibleParts.push(rawText.slice(cursor));
+    }
+  }
+
+  const visibleText = (
+    hasMalformedOverride ? withoutBalancedOverrides : visibleParts.join("")
+  )
     .replace(/\\[Nn]/gu, "\n")
     .replace(/\\h/gu, " ");
 
   return {
     visibleText,
-    warnings: /[{}]/u.test(withoutBalancedOverrides)
-      ? [
-          {
-            code: "suspicious-override",
-            message:
-              "The cue contains an unclosed or malformed override block.",
-            sourceOrder: null,
-          },
-        ]
-      : [],
+    warnings:
+      hasMalformedOverride || hasMalformedDrawingScale
+        ? [
+            {
+              code: "suspicious-override",
+              message:
+                "The cue contains a malformed drawing scale or override block.",
+              sourceOrder: null,
+            },
+          ]
+        : [],
   };
 }
 

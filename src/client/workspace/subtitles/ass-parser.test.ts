@@ -41,6 +41,95 @@ describe("parseAss", () => {
     });
   });
 
+  it("excludes stateful drawing payloads from visible text until drawing mode ends", () => {
+    const rawPayload =
+      "Dialogue: 0:00:01.00,0:00:02.00,Before{\\p1}m 0 0 l 10 10{\\p0}After";
+    const result = parseAss({
+      artifactId: "source-1",
+      text: ["[Events]", "Format: Start, End, Text", rawPayload].join("\n"),
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [
+        {
+          rawPayload,
+          visibleText: "BeforeAfter",
+          warnings: [],
+        },
+      ],
+    });
+  });
+
+  it("supports positive drawing scales without mistaking pbo or pos for drawing switches", () => {
+    const result = parseAss({
+      artifactId: "source-1",
+      text: [
+        "[Events]",
+        "Format: Start, End, Text",
+        "Dialogue: 0:00:01.00,0:00:02.00,{\\p2}m 0 0 l 10 10{\\p0}{\\pbo4\\pos(100,200)}Visible",
+      ].join("\n"),
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [{ visibleText: "Visible", warnings: [] }],
+    });
+  });
+
+  it("preserves dialogue before drawing data that continues through cue end", () => {
+    const rawPayload =
+      "Dialogue: 0:00:01.00,0:00:02.00,Keep this{\\p1}m 0 0 l 10 10";
+    const result = parseAss({
+      artifactId: "source-1",
+      text: ["[Events]", "Format: Start, End, Text", rawPayload].join("\n"),
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [
+        {
+          rawPayload,
+          visibleText: "Keep this",
+          warnings: [],
+        },
+      ],
+    });
+  });
+
+  it("preserves dialogue after a malformed negative drawing scale and reports it", () => {
+    const rawPayload =
+      "Dialogue: 0:00:01.00,0:00:02.00,{\\p-1}Visible dialogue";
+    const result = parseAss({
+      artifactId: "source-1",
+      text: ["[Events]", "Format: Start, End, Text", rawPayload].join("\n"),
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [
+        {
+          rawPayload,
+          visibleText: "Visible dialogue",
+          warnings: [{ code: "suspicious-override" }],
+        },
+      ],
+    });
+  });
+
+  it("accepts drawing mode through the end of a drawing-only cue", () => {
+    const rawPayload = "Dialogue: 0:00:01.00,0:00:02.00,{\\p1}m 0 0 l 10 10";
+    const result = parseAss({
+      artifactId: "source-1",
+      text: ["[Events]", "Format: Start, End, Text", rawPayload].join("\n"),
+    });
+
+    expect(result).toMatchObject({
+      kind: "parsed",
+      cues: [{ rawPayload, visibleText: "", warnings: [] }],
+    });
+  });
+
   it("returns a blocking error when Events has no usable Format", () => {
     expect(
       parseAss({ artifactId: "source-1", text: "[Events]\nDialogue: bad" }),
