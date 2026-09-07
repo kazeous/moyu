@@ -3,6 +3,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "../../tokens.css";
+@import "../client/lexical/lexical.css";
 
 @custom-variant dark (&:is(.dark *));
 

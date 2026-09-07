@@ -1,4 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+import { MetadataConflictError } from "@/server/metadata-conflict";
 
 import {
   createPhraseInputSchema,
@@ -90,8 +92,10 @@ async function replacePhraseRelationships(
 async function phraseWithMetadata(
   ownerId: string,
   phraseId: string,
+  database:
+    | DatabaseTransaction
+    | ReturnType<typeof getDatabaseClient> = getDatabaseClient(),
 ): Promise<CustomPhrase | null> {
-  const database = getDatabaseClient();
   const [phrase] = await database
     .select()
     .from(customPhrases)
@@ -156,28 +160,62 @@ export async function findPhraseById(
 export async function createPhrase(
   ownerId: string,
   input: CreatePhraseInput,
+  idempotencyId?: string,
 ): Promise<CustomPhrase> {
   const parsedInput = createPhraseInputSchema.parse(input);
+  const phraseId =
+    idempotencyId === undefined ? undefined : z.uuid().parse(idempotencyId);
   const uniqueTagIds = [...new Set(parsedInput.workTagIds)];
   const database = getDatabaseClient();
 
   return database.transaction(async (transaction) => {
     await lockOwnerMetadata(transaction, ownerId);
+    if (phraseId) {
+      const existing = await phraseWithMetadata(ownerId, phraseId, transaction);
+      if (existing) {
+        const canonical = (value: CreatePhraseInput) =>
+          JSON.stringify({
+            sourcePhrase: value.sourcePhrase,
+            language: value.language,
+            note: value.note ?? null,
+            glosses: [...value.glosses].sort((a, b) =>
+              a.language.localeCompare(b.language),
+            ),
+            workTagIds: [...new Set(value.workTagIds)].sort(),
+          });
+        if (
+          canonical(parsedInput) !==
+          canonical({
+            ...existing,
+            note: existing.note ?? undefined,
+            workTagIds: existing.workTags.map((tag) => tag.id),
+          })
+        )
+          throw new MetadataConflictError(
+            "Phrase retry conflicts with existing metadata.",
+          );
+        return existing;
+      }
+    }
     const tags = await findOwnerWorkTags(transaction, ownerId, uniqueTagIds);
 
     const [phrase] = await transaction
       .insert(customPhrases)
       .values({
+        ...(phraseId ? { id: phraseId } : {}),
         ownerId,
         sourcePhrase: parsedInput.sourcePhrase,
         language: parsedInput.language,
         note: parsedInput.note,
         matchingMode: "exact",
       })
+      .onConflictDoNothing({ target: customPhrases.id })
       .returning();
 
     if (!phrase) {
-      throw new Error("Unable to create phrase");
+      throw new MetadataConflictError(
+        "Phrase retry conflicts with existing metadata.",
+      );
     }
 
     await replacePhraseRelationships(

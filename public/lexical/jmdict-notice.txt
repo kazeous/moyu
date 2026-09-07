@@ -1,0 +1,41 @@
+JMdict Japanese–English dictionary — source and redistribution notice
+
+This application uses the JMdict dictionary file. It is the property of the
+Electronic Dictionary Research and Development Group, and is used in conformance
+with the Group's licence. Copyright James William Breen and the Electronic
+Dictionary Research and Development Group (EDRDG).
+
+Project and documentation:
+https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project
+https://www.edrdg.org/jmdict/jmdict_dtd_h.html
+Upstream licence statement, verified 2026-09-05:
+https://www.edrdg.org/edrdg/licence.html
+Published bulk input: https://www.edrdg.org/pub/Nihongo/JMdict_e.gz
+
+The Japanese/English components and this derived dictionary pack are distributed
+under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+Full legal code: https://creativecommons.org/licenses/by-sa/4.0/legalcode.en
+
+You may redistribute and adapt this dictionary, including commercially, subject
+to attribution, a licence link, identification of modifications, share-alike for
+adapted material, and no additional legal or technical restrictions. Preserve
+copyright and source notices. No endorsement by EDRDG is implied. The dictionary
+licence does not require the application code to have the same licence.
+
+Changes by moyu: extracted English senses to a versioned JSON contract; split
+compatible spelling/reading pairs; apply re_restr, re_nokanji, stagk and stagr;
+preserve sourced POS and textual usage qualifiers. Omit examples, cross-references,
+priority rankings and etymology. Original spellings and gloss wording remain.
+Identifiers retain the upstream ent_seq and a compatible-pair ordinal.
+
+The manifest records the exact release, compressed size, SHA256 and entry count.
+See scripts/lexical/README.md and sources.lock.json in the distribution source
+for pinned inputs and reproducible build instructions. EDRDG licence section 4
+requires regular updates from the most recent versions; it specifies at least
+monthly updates for WWW dictionary servers. The deployment maintainer must review
+and rebuild JMdict at least monthly, next by 2026-10-05 for this release. Download
+the newest published bulk file, review source/license changes, pin its new hash,
+run the tests, and publish a new immutable pack together with its manifest.
+Retain this notice and provide source acknowledgement wherever dictionary evidence is
+displayed, including an accessible persistent sources view.

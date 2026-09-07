@@ -1,0 +1,51 @@
+Vietnamese Wiktionary Japanese/Chinese dictionaries — source notice
+
+Copyright: Vietnamese Wiktionary contributors. Each author's contributions are
+credited through the original dictionary page and its linked revision history.
+Complete page-attribution index for these packs: /lexical/viwiktionary-credits.html
+Each normalized entry ID also starts with its original vi.wiktionary.org page URL;
+the fragment contains language code and the SHA256 of the canonical raw record.
+
+Source: https://vi.wiktionary.org/
+Bulk extraction by Kaikki.org / Wiktextract (Tatu Ylonen and contributors):
+https://kaikki.org/viwiktionary/
+https://kaikki.org/dictionary/rawdata.html
+https://github.com/tatuylonen/wiktextract
+Published input: https://kaikki.org/dictionary/downloads/vi/vi-extract.jsonl.gz
+
+Primary licence evidence, reviewed 2026-09-05:
+https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use#7._Licensing_of_Content
+https://kaikki.org/viwiktionary/ (Copyright and license section)
+
+These modified textual dictionary packs are released under Creative Commons
+Attribution-ShareAlike 4.0 International (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+Full legal code: https://creativecommons.org/licenses/by-sa/4.0/legalcode.en
+Wikimedia permits reuse under CC BY-SA; this distribution selects that licence,
+not the alternative GFDL. No audio, images or other non-text media are included.
+
+Redistribution/adaptation requires source/author credit (the linked page index),
+a licence link, notice of modifications, share-alike, and no additional legal or
+technical restrictions. Preserve any applicable additional attribution notices.
+No endorsement by Wikimedia, Wiktionary, Kaikki or Wiktextract is implied.
+
+Changes by moyu: select every raw ja record for Japanese; every zh/cmn record for
+Chinese/Mandarin. Keep only each canonical page headword and its supplied POS,
+readings/pronunciations, usage labels and Vietnamese gloss text; preserve Chinese
+pronunciation variety labels. Canonical ruby supplies readings with unannotated
+kana preserved. Do not expand inflections, form_of targets or script variants.
+Examples, media, translations into other languages, etymology and link metadata
+are omitted. Byte-identical duplicate records are deduplicated. JSON and gzip
+packaging added. Missing readings/glosses remain empty; no AI or machine translation.
+
+This is the complete relevant language subset of the pinned raw extraction,
+not a promise of comprehensive Vietnamese vocabulary or error-free extraction.
+Wiktionary and extractor limitations remain. In particular, some Chinese entries
+contain character descriptions or romanization references rather than definitions.
+
+The release version identifies retrieval date and source digest; the raw archive
+does not supply a trustworthy embedded dump date. Do not substitute dates from
+Kaikki's separately postprocessed index. See the manifest and scripts/lexical/
+source register for exact input/output hashes, sizes, counts and rebuild steps.
+Review upstream licences and extractor changes before manual updates; keep author
+credits and publish immutable new files. No licence-imposed update schedule.
