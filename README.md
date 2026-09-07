@@ -1,6 +1,6 @@
 # moyu
 
-moyu is a hosted Japanese/Chinese dialogue review app with English/Vietnamese references. It implements accounts, password and email magic-link sign-in, private work tags, phrases/glosses and settings, plus a browser-only dialogue workspace with paste and subtitle-file import, local dictionary evidence and personal phrase overlays. OCR and a fully installable/offline PWA shell are subsequent work.
+moyu is a hosted Japanese/Chinese dialogue review app with English/Vietnamese references. It implements accounts, password and email magic-link sign-in, private work tags, phrases/glosses and settings, plus a browser-only dialogue workspace with paste, subtitle-file and image OCR import, local dictionary evidence and personal phrase overlays. Production builds provide an installable offline workspace.
 
 Imported dialogue, reference translations, subtitle file names and bytes, all derived subtitle data (including decoded text, parsed cues, speaker names, timing data, warnings and alignment decisions), images, OCR, tokenization, lookup results and selection history belong only in the browser. They must never enter API payloads, server actions, PostgreSQL, logs, analytics, telemetry or error reports. The server stores authentication and personal terminology/settings metadata only; every metadata operation enforces the authenticated owner.
 
@@ -22,7 +22,7 @@ The example SMTP settings are development placeholders. Password sign-in works w
 
 ## Browser-only dialogue review
 
-Open `/workspace` (or follow **Open workspace** from `/`) and choose either paste or **Upload subtitle files**.
+Open `/workspace` (or follow **Open workspace** from `/`) and choose paste, **Upload subtitle files** or **Import image**.
 
 Paste accepts Japanese or Chinese dialogue as source-only text or alternating source/reference pairs. Correct the proposed Japanese/Chinese plus English/Vietnamese pairing before starting review.
 
@@ -32,7 +32,13 @@ Files are decoded and parsed in a browser worker, then aligned locally by timest
 
 IndexedDB in that browser stores the original pasted text or raw subtitle files, selected encodings, parsed cues and warnings, alignment decisions, active cue or line, evidence-panel width and speaker visibility preference. This lets an unfinished subtitle correction draft or active review resume after reload or browser restart on the same browser. Confirmed **Clear session** atomically removes the active review session, current subtitle draft and its referenced raw subtitle artifacts. It does not remove synced terminology/settings or the browser-local speaker visibility preference, and cleared review content cannot be restored from the server.
 
-Once the workspace page and subtitle worker asset have loaded, subtitle files can be processed locally while the browser is offline. The complete installable/offline PWA shell is still future work, so offline navigation to the app or an offline reload is not supported by this release.
+Choose **Import image** to paste a clipboard image or select a PNG, JPEG, WebP or BMP file (up to 25 MiB and 24 megapixels for recognition). Choose Japanese, simplified Chinese or traditional Chinese and run **Recognize image**. Tesseract processes it in browser workers using versioned assets served from moyu; no remote recognition service is used. Correct the text, choose source-only or alternating reference pairing, then preview before starting review. Recognition can miss or misread text even at high confidence. Low confidence, empty output, cancellation, unavailable assets and failures retain the original image and offer retry/manual correction. Retrying recognition preserves manual corrections. **Resume image draft** restores unfinished correction; **Review image** reopens the original during review. IndexedDB v3 adds OCR storage without rewriting previous review data. Confirmed **Clear session** deletes all original images, OCR output and corrections together with the review and subtitle content.
+
+Use **Install / offline** for readiness and installation guidance. After the production workspace finishes preparing online, `/workspace` opens and reloads offline with its existing local session. Installed dictionaries and previously used OCR models work offline; missing assets show a recoverable unavailable state. Install through a supporting browser's install menu, or Share → Add to Home Screen on iOS. Authentication and terminology sync require a connection; confirmed unsynced phrase edits remain available to retry. Updates wait until all moyu tabs close, preserving the running workspace. Browser storage remains local to that browser and can be removed by browser settings or storage eviction.
+
+The service worker caches a public build-time workspace shell and explicitly listed static assets. It never caches API, account, sign-in or magic-link responses, mutations, cross-origin requests, or asset URLs containing query strings. OCR assets are cached on successful use, separately from review content. Development mode does not install a service worker. See [OCR provenance and rebuild instructions](public/ocr/README.md).
+
+`test:pwa` verifies the standalone production artifact in Chromium, Firefox and WebKit, including cached dictionary and OCR worker restarts. Chromium and Firefox run with browser networking disabled. WebKit uses a proxy returning HTTP 503 for every request: headless offline emulation and connection resets can abort local worker/blob loads before cache handling in this test environment. It reserves ports 3100, 3104 and 3105; the outage proxy exists only in the test harness. For a clean browser environment, run `docker build -f Dockerfile.browser-tests -t moyu:browser-tests .` then `docker run --rm --ipc=host moyu:browser-tests`. The image version matches the locked Playwright runner; update both together. Host antivirus/browser extensions can inject traffic or modify model responses and invalidate host-side privacy results. The container gate keeps those assertions intact. Physical iOS/Android installation and airplane-mode behavior still require device testing.
 
 Choose **Install dictionaries** in Evidence to download the source language's English and Vietnamese packs (about 12.1 MiB for Japanese or 10.4 MiB for Chinese). SHA256-verified compressed packs are cached in IndexedDB. Indexing, segmentation, lookups and exact phrase matching run in a browser worker; requests use fixed public asset paths and never contain review text. Cached dictionaries work without network once the workspace is loaded. A newly published manifest offers **Update dictionaries** while the previous installed versions remain usable; failed downloads or storage writes preserve that fallback. Storage failure permits a current-visit download and explicitly warns that it may not survive reload.
 
@@ -52,6 +58,7 @@ Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 corepack pnpm test:e2e
 corepack pnpm verify:workspace
 corepack pnpm build
+corepack pnpm test:pwa
 ```
 
 Unit/integration tests require the local database to be running and migrated. Readiness tests create and remove an isolated temporary database, so the local test role needs `CREATEDB`. Browser tests reserve app port `3000`, SMTP capture API `3102` and SMTP `3103`; stop any development server first. The production build follows browser tests because Next development regenerates its type paths.
@@ -102,7 +109,7 @@ The Python source-normalizer and full shipped-asset integrity checks run separat
 
 For local release validation, configure a separate ignored `.env.release` with the runtime variables, an HTTPS `APP_ORIGIN` such as `https://moyu.example.test`, and real local database credentials. Load it for commands below. SMTP may point to a local capture service because this check validates configuration only.
 
-The complete release gate is formatting, linting, strict type checking, unit/integration tests, browser end-to-end tests, a production build, workspace privacy verification, foundation verification, a `linux/arm64` image build and architecture inspection, migration readiness, and the non-sensitive health check. Run all of these on the release commit; a partial run is not release readiness.
+The complete release gate is formatting, linting, strict type checking, unit/integration tests, browser end-to-end tests, a production build, production offline/install tests in Chromium, Firefox and WebKit, workspace privacy verification, foundation verification, a `linux/arm64` image build and architecture inspection, migration readiness, and the non-sensitive health check. Run all of these on the release commit; a partial run is not release readiness.
 
 ```powershell
 # Load your ignored release configuration into this PowerShell session.
@@ -119,6 +126,7 @@ Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 corepack pnpm test:e2e
 corepack pnpm verify:workspace
 corepack pnpm build
+corepack pnpm test:pwa
 docker build --platform linux/arm64 -t moyu:foundation .
 docker image inspect moyu:foundation --format '{{.Os}}/{{.Architecture}}'
 # Docker Desktop reaches the host database through host.docker.internal.
