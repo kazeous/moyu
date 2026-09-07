@@ -61,6 +61,7 @@ function memoryStore(overrides: Partial<LocalWorkspaceStore> = {}) {
       return {
         kind: "available",
         snapshot: {
+          ocrImports: [],
           session: null,
           subtitleImport: null,
           artifacts: [],
@@ -70,6 +71,10 @@ function memoryStore(overrides: Partial<LocalWorkspaceStore> = {}) {
     },
     async saveSession() {
       calls.push("session");
+      return { kind: "saved" };
+    },
+    async saveOcrImport() {
+      calls.push("ocr");
       return { kind: "saved" };
     },
     async saveSubtitleImport() {

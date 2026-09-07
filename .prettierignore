@@ -1,5 +1,10 @@
 .next
+.superpowers
+docs
 AGENTS.md
 node_modules
 playwright-report
 test-results
+public/ocr/v1
+public/sw.js
+public/offline.html

@@ -1,0 +1,11 @@
+# Local OCR assets
+
+moyu uses Tesseract.js 6.0.1, Tesseract.js-core 6.0.0 and the `4.0.0_best_int` models from `@tesseract.js-data/{jpn,chi_sim,chi_tra}` 1.0.0. These are integerized Tesseract language models; moyu copies the compressed files without modification. Application code is separate from the OCR data and engine licenses.
+
+The generated [source register](v1/manifest.json) records each package version, source file, byte count, SHA256, attribution, redistribution terms and update policy. The committed register is `scripts/ocr-sources.lock.json`; `pnpm-lock.yaml` also pins package integrity. The [Tesseract.js license](v1/TESSERACT-JS-LICENSE.txt) and [core license](v1/TESSERACT-CORE-LICENSE.txt) accompany the release. Tesseract language data is distributed under [Apache-2.0](https://github.com/tesseract-ocr/tessdata_best/blob/main/LICENSE); the npm packages declare MIT for their packaging.
+
+Upstream projects: [Tesseract.js](https://github.com/naptha/tesseract.js), [Tesseract.js-core](https://github.com/naptha/tesseract.js-core), [language packages](https://github.com/naptha/tessdata), [Tesseract models](https://github.com/tesseract-ocr/tessdata_best).
+
+`node scripts/prepare-ocr.mjs` validates versions and hashes and copies the assets from installed packages into `public/ocr/v1/`. It runs before development and production builds. No remote network is used by this preparation step; install the lockfile first. Generated binaries are intentionally untracked. For a reviewed asset update, pin the new package versions, update the script and URL version, run `node scripts/prepare-ocr.mjs --record`, and review the resulting register before committing. There is no upstream fixed update interval; review licenses, models and compatibility with every dependency update.
+
+The browser downloads the selected model (Japanese 1.94 MiB, simplified Chinese 1.64 MiB, traditional Chinese 1.58 MiB) and one compatible engine (about 3.8 MiB), plus a 109 KiB worker. SIMD and non-SIMD builds are provided. The app performs recognition only in workers. Images, OCR text and corrections never leave the browser. The production service worker caches successful public asset downloads for offline recognition; missing or evicted assets result in explicit retry/manual-correction controls.

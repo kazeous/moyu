@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  ocrImportSchema,
+  restoreOcrImport,
+  serializeOcrImport,
+  type OcrImport,
+} from "./ocr/contracts";
 
 import {
   migrateReviewSession,
@@ -16,7 +22,8 @@ import {
 } from "./subtitles/import-record";
 
 const DATABASE_NAME = "moyu-local-review";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
+const OCR_IMPORT_STORE = "ocr-imports";
 const SESSION_STORE = "sessions";
 const SUBTITLE_IMPORT_STORE = "subtitle-imports";
 const SUBTITLE_ARTIFACT_STORE = "subtitle-artifacts";
@@ -74,6 +81,7 @@ export type SaveSubtitleImportInput = Readonly<{
 }>;
 
 export type LocalWorkspaceSnapshot = Readonly<{
+  ocrImports: readonly OcrImport[];
   session: ReviewSession | null;
   subtitleImport: PersistedSubtitleImport | null;
   artifacts: readonly SubtitleArtifact[];
@@ -94,6 +102,7 @@ export type LocalWorkspaceSaveResult =
   | Readonly<{ kind: "unavailable"; reason: string }>;
 
 export interface LocalWorkspaceStore {
+  saveOcrImport(draft: OcrImport): Promise<LocalWorkspaceSaveResult>;
   clearReviewContent(): Promise<LocalWorkspaceSaveResult>;
   load(): Promise<LocalWorkspaceResult>;
   savePreferences(
@@ -106,6 +115,7 @@ export interface LocalWorkspaceStore {
 }
 
 type RawWorkspaceRecords = Readonly<{
+  ocrImports: readonly unknown[];
   session: unknown;
   subtitleImport: unknown;
   artifacts: readonly unknown[];
@@ -155,6 +165,7 @@ function openDatabase(indexedDb: IDBFactory) {
           SUBTITLE_IMPORT_STORE,
           SUBTITLE_ARTIFACT_STORE,
           PREFERENCE_STORE,
+          OCR_IMPORT_STORE,
         ]) {
           if (!request.result.objectStoreNames.contains(storeName)) {
             request.result.createObjectStore(storeName);
@@ -181,6 +192,7 @@ async function readWorkspaceRecords(
       SUBTITLE_IMPORT_STORE,
       SUBTITLE_ARTIFACT_STORE,
       PREFERENCE_STORE,
+      OCR_IMPORT_STORE,
     ],
     "readonly",
   );
@@ -194,10 +206,11 @@ async function readWorkspaceRecords(
   const preferenceRequest = transaction
     .objectStore(PREFERENCE_STORE)
     .get(WORKSPACE_PREFERENCE_KEY);
-  const [session, subtitleImport, preferences] = await Promise.all([
+  const [session, subtitleImport, preferences, ocrImports] = await Promise.all([
     requestResult(sessionRequest),
     requestResult(importRequest),
     requestResult(preferenceRequest),
+    requestResult(transaction.objectStore(OCR_IMPORT_STORE).getAll()),
   ]);
 
   let artifactIds: readonly string[] = [];
@@ -218,7 +231,7 @@ async function readWorkspaceRecords(
     ),
   );
   await completed;
-  return { session, subtitleImport, artifacts, preferences };
+  return { session, subtitleImport, artifacts, preferences, ocrImports };
 }
 
 function parseArtifacts(
@@ -311,6 +324,23 @@ export function createLocalSessionStore(
     return withDatabase<LocalWorkspaceResult>(async (database) => {
       const records = await readWorkspaceRecords(database);
       if ("kind" in records) return records;
+      const ocr = z
+        .array(
+          z.unknown().transform((value, context) => {
+            try {
+              return restoreOcrImport(value);
+            } catch {
+              context.addIssue({
+                code: "custom",
+                message: "Invalid local image record.",
+              });
+              return z.NEVER;
+            }
+          }),
+        )
+        .safeParse(records.ocrImports);
+      if (!ocr.success)
+        return corrupt("The saved local image draft cannot be read safely.");
 
       let session: ReviewSession | null = null;
       if (records.session !== undefined) {
@@ -373,11 +403,19 @@ export function createLocalSessionStore(
         : { showSpeakerNames: true };
 
       const snapshot: LocalWorkspaceSnapshot = {
+        ocrImports: ocr.data,
         session,
         subtitleImport,
         artifacts,
         preferences,
       };
+      const origin = session?.origin;
+      if (
+        origin?.kind === "ocr" &&
+        !ocr.data.some((draft) => draft.id === origin.importId)
+      ) {
+        return corrupt("The saved OCR review has no matching original image.");
+      }
       return { kind: "available", snapshot };
     }, unavailable("Browser storage is unavailable. Your review content stays on this device."));
   }
@@ -394,10 +432,30 @@ export function createLocalSessionStore(
 
     return withDatabase<LocalWorkspaceSaveResult>(async (database) => {
       const transaction = database.transaction(
-        [SESSION_STORE, SUBTITLE_IMPORT_STORE],
+        [SESSION_STORE, SUBTITLE_IMPORT_STORE, OCR_IMPORT_STORE],
         "readwrite",
       );
       const completed = transactionResult(transaction);
+      if (parsed.data.origin.kind === "ocr") {
+        const image = await requestResult(
+          transaction
+            .objectStore(OCR_IMPORT_STORE)
+            .get(parsed.data.origin.importId),
+        );
+        let valid = false;
+        try {
+          valid = restoreOcrImport(image).id === parsed.data.origin.importId;
+        } catch {
+          /* Retain corrupt records for explicit recovery. */
+        }
+        if (!valid) {
+          transaction.abort();
+          await completed.catch(() => undefined);
+          return unavailable(
+            "Save the original image before starting OCR review.",
+          );
+        }
+      }
       if (parsed.data.origin.kind === "subtitle") {
         const importValue = await requestResult(
           transaction
@@ -533,18 +591,36 @@ export function createLocalSessionStore(
   async function clearReviewContent(): Promise<LocalWorkspaceSaveResult> {
     return withDatabase<LocalWorkspaceSaveResult>(async (database) => {
       const transaction = database.transaction(
-        [SESSION_STORE, SUBTITLE_IMPORT_STORE, SUBTITLE_ARTIFACT_STORE],
+        [
+          SESSION_STORE,
+          SUBTITLE_IMPORT_STORE,
+          SUBTITLE_ARTIFACT_STORE,
+          OCR_IMPORT_STORE,
+        ],
         "readwrite",
       );
       transaction.objectStore(SESSION_STORE).clear();
       transaction.objectStore(SUBTITLE_IMPORT_STORE).clear();
       transaction.objectStore(SUBTITLE_ARTIFACT_STORE).clear();
+      transaction.objectStore(OCR_IMPORT_STORE).clear();
       await transactionResult(transaction);
       return { kind: "saved" };
     }, unavailable("Browser storage is unavailable. Your review content stays on this device."));
   }
 
   return {
+    async saveOcrImport(draft) {
+      const parsed = ocrImportSchema.safeParse(draft);
+      if (!parsed.success)
+        return unavailable("The image draft is incomplete and was not saved.");
+      return withDatabase<LocalWorkspaceSaveResult>(async (database) => {
+        const record = await serializeOcrImport(parsed.data);
+        const transaction = database.transaction(OCR_IMPORT_STORE, "readwrite");
+        transaction.objectStore(OCR_IMPORT_STORE).put(record, parsed.data.id);
+        await transactionResult(transaction);
+        return { kind: "saved" };
+      }, unavailable("Image draft could not be saved. Keep this page open and retry local storage."));
+    },
     load,
     saveSession,
     saveSubtitleImport,
