@@ -1,0 +1,9 @@
+{
+  "scannedAt": "2026-09-04",
+  "framework": "Next.js App Router with React and TypeScript",
+  "fontStack": "Local Workshop pairing: Iowan Old Style/Yu Mincho reading face and Aptos/Segoe UI interface face",
+  "palette": "OKLCH paper, ink, oxidized-blue accent, semantic danger/success tokens",
+  "motion": "Motion-cut with short state transitions and reduced-motion support",
+  "spacing": "Named 4px-based scale in tokens.css",
+  "sources": ["package.json", "tokens.css", "src/app/globals.css"]
+}
