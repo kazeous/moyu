@@ -116,7 +116,7 @@ async function readRawValue<T>(
   storeName: string,
   key: IDBValidKey,
 ) {
-  const database = await openDatabase(indexedDb, 2, [
+  const database = await openDatabase(indexedDb, 3, [
     "sessions",
     "subtitle-imports",
     "subtitle-artifacts",
@@ -133,7 +133,7 @@ async function readRawValue<T>(
 }
 
 async function readArtifactKeys(indexedDb: IDBFactory) {
-  const database = await openDatabase(indexedDb, 2, [
+  const database = await openDatabase(indexedDb, 3, [
     "sessions",
     "subtitle-imports",
     "subtitle-artifacts",
@@ -757,7 +757,7 @@ describe("createLocalSessionStore", () => {
 
   it("returns unavailable without modifying data when the clear transaction cannot open", async () => {
     const indexedDb = new IDBFactory();
-    const database = await openDatabase(indexedDb, 2, ["sessions"]);
+    const database = await openDatabase(indexedDb, 3, ["sessions"]);
     const transaction = database.transaction("sessions", "readwrite");
     transaction.objectStore("sessions").put(pasteSession, "active");
     await transactionResult(transaction);

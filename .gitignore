@@ -2,6 +2,9 @@
 docs/
 node_modules/
 .next/
+public/ocr/v1/
+public/sw.js
+public/offline.html
 *.tsbuildinfo
 test-results/
 playwright-report/

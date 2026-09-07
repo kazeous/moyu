@@ -104,6 +104,9 @@ export const reviewSessionSchema = z
       z
         .object({ kind: z.literal("subtitle"), importId: z.string().min(1) })
         .strict(),
+      z
+        .object({ kind: z.literal("ocr"), importId: z.string().min(1) })
+        .strict(),
     ]),
     lines: z.array(reviewLineV2Schema),
     activeLineId: z.string().min(1).nullable(),

@@ -1,0 +1,12 @@
+FROM mcr.microsoft.com/playwright:v1.62.1-noble
+
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN --mount=type=cache,id=moyu-browser-pnpm,target=/pnpm/store \
+  pnpm install --frozen-lockfile --store-dir /pnpm/store
+COPY . .
+RUN pnpm build
+CMD ["node", "node_modules/@playwright/test/cli.js", "test", "--config", "playwright.pwa.config.ts"]

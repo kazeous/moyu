@@ -92,6 +92,9 @@ import {
 import { SubtitleAlignmentWorkspace } from "./subtitle-alignment-workspace";
 import { SubtitleFileDialog } from "./subtitle-file-dialog";
 import { useSubtitleImport } from "./use-subtitle-import";
+import { ImageImportDialog } from "./ocr/image-import-dialog";
+import type { OcrImport } from "./ocr/contracts";
+import { OfflineControl } from "../pwa/offline-control";
 
 type StorageMessage = { tone: "error" | "success"; text: string } | null;
 type StorageRecovery = "clear" | "retry" | "retry-clear" | null;
@@ -118,6 +121,8 @@ function ImportDesk({
   storageMessage,
   onUploadSubtitleFiles,
   onResumeSubtitleDraft,
+  onImportImage,
+  hasImageDraft,
 }: {
   onClearUnreadable: () => void;
   onImport: (session: ReviewSession) => void;
@@ -126,6 +131,8 @@ function ImportDesk({
   storageMessage: StorageMessage;
   onUploadSubtitleFiles: () => void;
   onResumeSubtitleDraft?: () => void;
+  onImportImage: () => void;
+  hasImageDraft: boolean;
 }) {
   const [value, setValue] = useState("");
   const [mode, setMode] = useState<ImportMode>("source-only");
@@ -198,6 +205,7 @@ function ImportDesk({
           <Link className="workspace__account-link" href="/account">
             Account
           </Link>
+          <OfflineControl />
         </header>
         <main className="workspace__import-shell">
           <section
@@ -279,6 +287,7 @@ function ImportDesk({
         <Link className="workspace__account-link" href="/account">
           Account
         </Link>
+        <OfflineControl />
       </header>
       <main className="workspace__import-shell">
         <Empty className="workspace__import-card">
@@ -432,6 +441,9 @@ function ImportDesk({
             <Button onClick={onUploadSubtitleFiles} size="lg" variant="outline">
               <FileUp data-icon="inline-start" aria-hidden="true" />
               Upload subtitle files
+            </Button>
+            <Button onClick={onImportImage} size="lg" variant="outline">
+              {hasImageDraft ? "Resume image draft" : "Import image"}
             </Button>
             {onResumeSubtitleDraft ? (
               <Button onClick={onResumeSubtitleDraft} variant="ghost">
@@ -618,6 +630,7 @@ function ReviewWorkspace({
   storageMessage,
   storageRecovery,
   onReviewAlignment,
+  onReviewImage,
   showSpeakerNames,
 }: {
   onSelectSpan: (selection: SpanSelection) => void;
@@ -632,6 +645,7 @@ function ReviewWorkspace({
   storageMessage: StorageMessage;
   storageRecovery: StorageRecovery;
   onReviewAlignment?: () => void;
+  onReviewImage?: () => void;
   showSpeakerNames: boolean;
 }) {
   const library = usePersonalLibrary();
@@ -771,7 +785,9 @@ function ReviewWorkspace({
           <span>
             {session.origin.kind === "subtitle"
               ? "Subtitle review"
-              : "Pasted dialogue"}
+              : session.origin.kind === "ocr"
+                ? "Image review"
+                : "Pasted dialogue"}
           </span>
           <span>
             {sourceLanguageLabels[session.sourceLanguage]} →{" "}
@@ -779,10 +795,32 @@ function ReviewWorkspace({
           </span>
         </div>
         <div className="workspace__header-status">
+          <OfflineControl />
           <Badge variant="outline">Local only</Badge>
+          {onReviewImage ? (
+            <Button
+              aria-label="Review image"
+              onClick={onReviewImage}
+              size="sm"
+              variant="ghost"
+            >
+              <ClipboardPaste data-icon="inline-start" aria-hidden="true" />
+              <span className="workspace__secondary-action-label">
+                Review image
+              </span>
+            </Button>
+          ) : null}
           {onReviewAlignment ? (
-            <Button onClick={onReviewAlignment} size="sm" variant="ghost">
-              Review alignment
+            <Button
+              aria-label="Review alignment"
+              onClick={onReviewAlignment}
+              size="sm"
+              variant="ghost"
+            >
+              <BookOpenText data-icon="inline-start" aria-hidden="true" />
+              <span className="workspace__secondary-action-label">
+                Review alignment
+              </span>
             </Button>
           ) : null}
           <Link className="workspace__account-link" href="/account">
@@ -989,6 +1027,7 @@ function ReviewWorkspace({
 }
 
 const emptyWorkspaceSnapshot: LocalWorkspaceSnapshot = {
+  ocrImports: [],
   session: null,
   subtitleImport: null,
   artifacts: [],
@@ -1050,6 +1089,20 @@ function HydratedLocalReviewWorkspace({
   onReloadStorage: () => void;
 }) {
   const [clearing, setClearing] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
+  const [imageRevision, setImageRevision] = useState(0);
+  const [imageDraft, setImageDraft] = useState<OcrImport | null>(() => {
+    const origin = initialSnapshot.session?.origin;
+    return (
+      initialSnapshot.ocrImports.find(
+        (draft) => origin?.kind === "ocr" && draft.id === origin.importId,
+      ) ??
+      [...initialSnapshot.ocrImports].sort(
+        (a, b) => b.createdAt - a.createdAt,
+      )[0] ??
+      null
+    );
+  });
   const [session, setSession] = useState<ReviewSession | null>(
     initialSnapshot.session,
   );
@@ -1072,6 +1125,8 @@ function HydratedLocalReviewWorkspace({
     persistence,
     getEvidencePanelWidth: () => session?.evidencePanelWidth ?? 360,
     onCleared: () => {
+      setImageDraft(null);
+      setImageRevision((revision) => revision + 1);
       setSession(null);
       setViewMode("alignment");
       setStorageRecovery(null);
@@ -1156,6 +1211,8 @@ function HydratedLocalReviewWorkspace({
       );
 
       if (result.kind === "saved") {
+        setImageDraft(null);
+        setImageRevision((revision) => revision + 1);
         subtitleController.resetAfterClear();
         setSession(null);
         setStorageRecovery(null);
@@ -1225,6 +1282,9 @@ function HydratedLocalReviewWorkspace({
         storageRecovery={storageRecovery}
         showSpeakerNames={subtitleController.showSpeakerNames}
         onReviewAlignment={canReopen ? openSavedAlignment : undefined}
+        onReviewImage={
+          session.origin.kind === "ocr" ? () => setImageOpen(true) : undefined
+        }
       />
     );
   } else if (draft && subtitleController.state.kind !== "idle") {
@@ -1254,6 +1314,8 @@ function HydratedLocalReviewWorkspace({
         storageRecovery={storageRecovery}
         onUploadSubtitleFiles={subtitleController.openFiles}
         onResumeSubtitleDraft={draft ? openSavedAlignment : undefined}
+        hasImageDraft={imageDraft !== null}
+        onImportImage={() => setImageOpen(true)}
       />
     );
   }
@@ -1261,6 +1323,16 @@ function HydratedLocalReviewWorkspace({
     <>
       {surface}
       <SubtitleFileDialog controller={subtitleController} />
+      <ImageImportDialog
+        key={imageRevision}
+        open={imageOpen}
+        onOpenChange={setImageOpen}
+        initialDraft={imageDraft}
+        onDraftChange={setImageDraft}
+        persistence={persistence}
+        onImport={(next) => persistSession(next, true)}
+        onClear={() => handleClear(false)}
+      />
     </>
   );
 }

@@ -1,4 +1,5 @@
 import type { ReviewSession } from "./model";
+import type { OcrImport } from "./ocr/contracts";
 import type {
   LocalWorkspaceSaveResult,
   LocalWorkspaceStore,
@@ -10,6 +11,7 @@ export type QueuedWorkspaceSaveResult =
   LocalWorkspaceSaveResult | Readonly<{ kind: "ignored" }>;
 
 export interface WorkspacePersistenceQueue {
+  saveOcrImport(draft: OcrImport): Promise<QueuedWorkspaceSaveResult>;
   beginReviewContent(): void;
   clearReviewContent(): Promise<LocalWorkspaceSaveResult>;
   savePreferences(
@@ -88,6 +90,9 @@ export function createWorkspacePersistenceQueue(
   }
 
   const persistence: WorkspacePersistenceQueue = {
+    saveOcrImport(draft) {
+      return saveReviewContent((store) => store.saveOcrImport(draft));
+    },
     beginReviewContent,
     clearReviewContent,
     savePreferences(preferences) {

@@ -55,7 +55,7 @@ function normalizeSpecifier(specifier) {
 
 function isWorkspaceModule(specifier) {
   const normalized = normalizeSpecifier(specifier);
-  return /(^|\/)client\/(workspace|lexical|terminology)($|\/)/u.test(
+  return /(^|\/)client\/(workspace|lexical|terminology|pwa)($|\/)/u.test(
     normalized,
   );
 }
@@ -83,7 +83,7 @@ function isUncheckedClientModule(sourcePath, specifier) {
   );
   return (
     resolved.startsWith("src/client/") &&
-    !/^src\/client\/(workspace|lexical|terminology)\//u.test(resolved)
+    !/^src\/client\/(workspace|lexical|terminology|pwa)\//u.test(resolved)
   );
 }
 
@@ -317,6 +317,7 @@ export function inspectWorkspaceBoundary({
     const networkAdapter = [
       "src/client/lexical/assets.ts",
       "src/client/terminology/api.ts",
+      "src/client/pwa/service-worker.js",
     ].includes(source.path);
     if (
       networkAdapter &&
@@ -383,7 +384,7 @@ export async function runWorkspaceVerification() {
   const [clientSources, serverSources, apiSources, appSources] =
     await Promise.all([
       Promise.all(
-        ["workspace", "lexical", "terminology"].map((domain) =>
+        ["workspace", "lexical", "terminology", "pwa"].map((domain) =>
           readSources(projectRoot, `src/client/${domain}`).catch((error) => {
             if (error.code === "ENOENT") return [];
             throw error;
