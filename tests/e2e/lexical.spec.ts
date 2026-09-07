@@ -63,6 +63,12 @@ test("installs real local dictionaries, inspects evidence, restores selection an
   await page.reload();
   await expect(cat).toBeVisible({ timeout: 120_000 });
   await expect(cat).toHaveAttribute("aria-pressed", "true");
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.getByRole("button", { name: "Evidence", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Evidence", exact: true });
+  await expect(
+    drawer.getByText("Surface form", { exact: true }),
+  ).toBeInViewport();
   expect(leaks).toEqual([]);
   expect(api).toEqual([]);
 });

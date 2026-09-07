@@ -658,6 +658,7 @@ function ReviewWorkspace({
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const lineElements = useRef(new Map<string, HTMLElement>());
   const desktopPanels = useRef<HTMLDivElement>(null);
+  const evidenceTitle = useRef<HTMLHeadingElement>(null);
   const navigatorElements = useRef(new Map<string, HTMLButtonElement>());
   const mobileNavigatorElements = useRef(new Map<string, HTMLButtonElement>());
   const programmaticScrollTarget = useRef<string | null>(null);
@@ -961,9 +962,15 @@ function ReviewWorkspace({
             <PanelRight data-icon="inline-start" aria-hidden="true" />
             Evidence
           </SheetTrigger>
-          <SheetContent className="workspace__evidence-sheet" side="bottom">
+          <SheetContent
+            className="workspace__evidence-sheet"
+            side="bottom"
+            initialFocus={evidenceTitle}
+          >
             <SheetHeader>
-              <SheetTitle>Evidence</SheetTitle>
+              <SheetTitle ref={evidenceTitle} tabIndex={-1}>
+                Evidence
+              </SheetTitle>
               <SheetDescription>
                 Local evidence for the active dialogue line.
               </SheetDescription>
