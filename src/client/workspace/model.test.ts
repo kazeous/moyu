@@ -13,6 +13,26 @@ const validSession = {
 };
 
 describe("reviewSessionSchema", () => {
+  it("stores a local selection only within the active original source", () => {
+    expect(
+      reviewSessionSchema.safeParse({
+        ...validSession,
+        lexicalSelection: { start: 0, end: 1 },
+      }).success,
+    ).toBe(true);
+    expect(
+      reviewSessionSchema.safeParse({
+        ...validSession,
+        lexicalSelection: { start: 0, end: 90 },
+      }).success,
+    ).toBe(false);
+    expect(
+      reviewSessionSchema.safeParse({
+        ...validSession,
+        lexicalSelection: { start: 1, end: 1 },
+      }).success,
+    ).toBe(false);
+  });
   it("requires the active line to exist", () => {
     expect(
       reviewSessionSchema.safeParse({

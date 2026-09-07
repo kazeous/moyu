@@ -51,7 +51,11 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import { LexicalEvidencePane } from "../lexical/evidence-pane";
+import { TokenChips, type SpanSelection } from "../lexical/token-chips";
+import { useLexical, type LexicalState } from "../lexical/use-lexical";
+import { usePersonalLibrary } from "../terminology/use-personal-library";
+import { PersonalLibrary } from "../terminology/personal-library";
 import {
   Sheet,
   SheetContent,
@@ -104,61 +108,6 @@ const referenceLanguageLabels: Record<ReferenceLanguage, string> = {
 
 function linePreview(line: ReviewLine) {
   return line.source === "" ? "Blank line" : line.source;
-}
-
-function EvidencePane({ session }: { session: ReviewSession }) {
-  const activeLine = session.lines.find(
-    (line) => line.id === session.activeLineId,
-  );
-
-  if (!activeLine) {
-    return (
-      <section className="workspace__evidence" aria-label="Evidence">
-        <p className="workspace__eyebrow">EVIDENCE</p>
-        <h2>Choose a line to inspect</h2>
-        <p className="workspace__muted">
-          The evidence panel updates for the selected local line.
-        </p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="workspace__evidence" aria-label="Evidence">
-      <div className="workspace__evidence-heading">
-        <h2 title={activeLine.source || "Blank source line"}>
-          EVIDENCE · <span>{activeLine.source || "Blank source line"}</span>
-        </h2>
-      </div>
-      <Separator />
-      <dl className="workspace__evidence-source">
-        <div>
-          <dt>Surface form</dt>
-          <dd>{activeLine.source || "Blank source line"}</dd>
-        </div>
-        <div>
-          <dt>Source language</dt>
-          <dd>{sourceLanguageLabels[session.sourceLanguage]}</dd>
-        </div>
-        {activeLine.reference !== undefined ? (
-          <div>
-            <dt>{referenceLanguageLabels[session.referenceLanguage]}</dt>
-            <dd>{activeLine.reference || "Blank reference line"}</dd>
-          </div>
-        ) : null}
-      </dl>
-      <Separator />
-      <div className="workspace__unavailable" role="status">
-        <p className="workspace__eyebrow">Lexical evidence</p>
-        <h3>Not available yet</h3>
-        <p>
-          <strong>Lexical assets not installed.</strong> This line is ready for
-          local analysis. Readings, parts of speech, and definitions will appear
-          only when local language assets are installed.
-        </p>
-      </div>
-    </section>
-  );
 }
 
 function ImportDesk({
@@ -497,6 +446,8 @@ function ImportDesk({
 }
 
 function ReviewSurface({
+  lexical,
+  onSelectSpan,
   onProgrammaticScrollEnd,
   onRetryClear,
   onRetryStorage,
@@ -509,6 +460,8 @@ function ReviewSurface({
   onUserScrollIntent,
   showSpeakerNames,
 }: {
+  lexical: LexicalState;
+  onSelectSpan: (selection: SpanSelection) => void;
   onProgrammaticScrollEnd: () => void;
   onRetryClear: () => void;
   onRetryStorage: () => void;
@@ -638,24 +591,11 @@ function ReviewSurface({
                 ) : null}
               </div>
               {active ? (
-                <div className="workspace__line-active-note">
-                  <span>Unprocessed source span</span>
-                  <Button
-                    aria-label={`Inspect unprocessed source span: ${linePreview(line)}`}
-                    aria-pressed="true"
-                    className="workspace__raw-span"
-                    size="sm"
-                    variant="outline"
-                  >
-                    <span className="truncate">
-                      {line.source || "Blank source line"}
-                    </span>
-                  </Button>
-                  <span>
-                    Local token evidence is unavailable until language assets
-                    are installed.
-                  </span>
-                </div>
+                <TokenChips
+                  lexical={lexical}
+                  session={session}
+                  onSelect={onSelectSpan}
+                />
               ) : null}
             </article>
           );
@@ -666,6 +606,8 @@ function ReviewSurface({
 }
 
 function ReviewWorkspace({
+  onSelectSpan,
+  onWorkTagsChange,
   clearing,
   onClear,
   onEvidencePanelWidth,
@@ -678,6 +620,8 @@ function ReviewWorkspace({
   onReviewAlignment,
   showSpeakerNames,
 }: {
+  onSelectSpan: (selection: SpanSelection) => void;
+  onWorkTagsChange: (ids: string[]) => void;
   clearing: boolean;
   onClear: () => void;
   onEvidencePanelWidth: (width: number) => void;
@@ -690,6 +634,27 @@ function ReviewWorkspace({
   onReviewAlignment?: () => void;
   showSpeakerNames: boolean;
 }) {
+  const library = usePersonalLibrary();
+  const lexical = useLexical(session, library.matches);
+  const selectedLine = session.lines.find(
+    (line) => line.id === session.activeLineId,
+  );
+  const selectedPhrase = session.lexicalSelection
+    ? (selectedLine?.source.slice(
+        session.lexicalSelection.start,
+        session.lexicalSelection.end,
+      ) ?? "")
+    : "";
+  const personal = (
+    <PersonalLibrary
+      library={library}
+      sourcePhrase={selectedPhrase}
+      language={session.sourceLanguage}
+      workTagIds={session.workTagIds ?? []}
+      onWorkTagsChange={onWorkTagsChange}
+      overlays={lexical.overlays}
+    />
+  );
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const lineElements = useRef(new Map<string, HTMLElement>());
   const desktopPanels = useRef<HTMLDivElement>(null);
@@ -950,6 +915,8 @@ function ReviewWorkspace({
             minSize="35%"
           >
             <ReviewSurface
+              lexical={lexical}
+              onSelectSpan={onSelectSpan}
               onActiveLineChange={handleLineChange}
               onProgrammaticScrollEnd={clearProgrammaticScrollTarget}
               onRetryClear={onRetryClear}
@@ -971,7 +938,12 @@ function ReviewWorkspace({
             maxSize="720px"
             minSize="280px"
           >
-            <EvidencePane session={session} />
+            <LexicalEvidencePane
+              personal={personal}
+              session={session}
+              lexical={lexical}
+              onSelect={onSelectSpan}
+            />
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
@@ -996,7 +968,12 @@ function ReviewWorkspace({
                 Local evidence for the active dialogue line.
               </SheetDescription>
             </SheetHeader>
-            <EvidencePane session={session} />
+            <LexicalEvidencePane
+              personal={personal}
+              session={session}
+              lexical={lexical}
+              onSelect={onSelectSpan}
+            />
           </SheetContent>
         </Sheet>
       </div>
@@ -1129,7 +1106,11 @@ function HydratedLocalReviewWorkspace({
       return;
     }
 
-    persistSession({ ...session, activeLineId: lineId });
+    persistSession({
+      ...session,
+      activeLineId: lineId,
+      lexicalSelection: undefined,
+    });
 
     if (shouldScroll) {
       return;
@@ -1220,6 +1201,12 @@ function HydratedLocalReviewWorkspace({
   if (session && viewMode === "review") {
     surface = (
       <ReviewWorkspace
+        onWorkTagsChange={(workTagIds) =>
+          persistSession({ ...session, workTagIds })
+        }
+        onSelectSpan={(lexicalSelection) =>
+          persistSession({ ...session, lexicalSelection })
+        }
         clearing={clearing}
         onClear={() => handleClear(false)}
         onEvidencePanelWidth={handleEvidencePanelWidth}

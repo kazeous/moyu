@@ -108,9 +108,33 @@ export const reviewSessionSchema = z
     lines: z.array(reviewLineV2Schema),
     activeLineId: z.string().min(1).nullable(),
     evidencePanelWidth: z.number().min(280).max(720),
+    lexicalSelection: z
+      .object({
+        start: z.number().int().nonnegative(),
+        end: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
+    workTagIds: z.array(z.uuid()).optional(),
   })
   .strict()
-  .superRefine(validateSessionSelection);
+  .superRefine(validateSessionSelection)
+  .superRefine((session, context) => {
+    const selection = session.lexicalSelection;
+    if (!selection) return;
+    const line = session.lines.find((line) => line.id === session.activeLineId);
+    if (
+      !line ||
+      selection.end <= selection.start ||
+      selection.end > line.source.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["lexicalSelection"],
+        message: "Selection must be within the active source.",
+      });
+    }
+  });
 
 export type SourceLanguage = z.infer<typeof sourceLanguageSchema>;
 export type ReferenceLanguage = z.infer<typeof referenceLanguageSchema>;
