@@ -55,10 +55,8 @@ function normalizeSpecifier(specifier) {
 
 function isWorkspaceModule(specifier) {
   const normalized = normalizeSpecifier(specifier);
-  return (
-    normalized === "@/client/workspace" ||
-    normalized.startsWith("@/client/workspace/") ||
-    /(^|\/)client\/workspace($|\/)/u.test(normalized)
+  return /(^|\/)client\/(workspace|lexical|terminology)($|\/)/u.test(
+    normalized,
   );
 }
 
@@ -85,15 +83,24 @@ function isUncheckedClientModule(sourcePath, specifier) {
   );
   return (
     resolved.startsWith("src/client/") &&
-    !resolved.startsWith("src/client/workspace/")
+    !/^src\/client\/(workspace|lexical|terminology)\//u.test(resolved)
   );
 }
 
-function findNetworkPrimitive(sourceFile) {
+function findNetworkPrimitive(sourceFile, allowFetch = false) {
   let found;
 
   function visit(node) {
     if (found) return;
+
+    if (
+      ts.isIdentifier(node) &&
+      ["fetch", "sendBeacon", ...networkConstructors].includes(node.text) &&
+      !(allowFetch && node.text === "fetch")
+    ) {
+      found = node.text;
+      return;
+    }
 
     const expressionName = (expression) => {
       if (ts.isIdentifier(expression)) return expression.text;
@@ -111,6 +118,7 @@ function findNetworkPrimitive(sourceFile) {
     };
 
     if (
+      !allowFetch &&
       ts.isCallExpression(node) &&
       expressionName(node.expression) === "fetch"
     ) {
@@ -306,6 +314,18 @@ export function inspectWorkspaceBoundary({
       scriptKindFor(source.path),
     );
     const imports = importsFrom(parsed);
+    const networkAdapter = [
+      "src/client/lexical/assets.ts",
+      "src/client/terminology/api.ts",
+    ].includes(source.path);
+    if (
+      networkAdapter &&
+      imports.some((specifier) =>
+        /workspace|\/engine|\/use-lexical/u.test(specifier),
+      )
+    ) {
+      throw new Error(`Network adapter imports review content: ${source.path}`);
+    }
     if (imports.some(isServerModule)) {
       throw new Error(`Browser workspace imports server code: ${source.path}`);
     }
@@ -317,7 +337,7 @@ export function inspectWorkspaceBoundary({
         `Browser workspace imports unchecked client module ${uncheckedClientImport}: ${source.path}`,
       );
     }
-    const primitive = findNetworkPrimitive(parsed);
+    const primitive = findNetworkPrimitive(parsed, networkAdapter);
     if (primitive) {
       throw new Error(
         `Browser workspace uses network primitive ${primitive}: ${source.path}`,
@@ -362,7 +382,16 @@ export async function runWorkspaceVerification() {
   );
   const [clientSources, serverSources, apiSources, appSources] =
     await Promise.all([
-      readSources(projectRoot, "src/client/workspace"),
+      Promise.all(
+        ["workspace", "lexical", "terminology"].map((domain) =>
+          readSources(projectRoot, `src/client/${domain}`).catch((error) => {
+            if (error.code === "ENOENT") return [];
+            throw error;
+          }),
+        ),
+      ).then((groups) =>
+        groups.flat().filter((source) => !source.path.endsWith(".test.ts")),
+      ),
       readSources(projectRoot, "src/server"),
       readSources(projectRoot, "src/app/api"),
       readSources(projectRoot, "src/app"),

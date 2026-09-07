@@ -4,6 +4,62 @@ import { assertMetadataContracts } from "./verify-foundation.mjs";
 import { inspectWorkspaceBoundary } from "./verify-workspace.mjs";
 
 describe("workspace deployment boundary", () => {
+  it("rejects server imports of browser lexical analysis", () => {
+    expect(() =>
+      inspectWorkspaceBoundary({
+        serverSources: [
+          {
+            path: "src/server/leak.ts",
+            text: 'import { analyze } from "@/client/lexical/engine";',
+          },
+        ],
+      }),
+    ).toThrow("Server code imports browser workspace data");
+  });
+  it("permits reviewed lexical composition but rejects network calls in the engine", () => {
+    expect(() =>
+      inspectWorkspaceBoundary({
+        clientSources: [
+          {
+            path: "src/client/workspace/review.tsx",
+            text: 'import { TokenChips } from "../lexical/token-chips";',
+          },
+        ],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      inspectWorkspaceBoundary({
+        clientSources: [
+          {
+            path: "src/client/lexical/engine.ts",
+            text: 'const remote = fetch; remote("/api/leak");',
+          },
+        ],
+      }),
+    ).toThrow("network primitive fetch");
+  });
+  it("confines networking to named adapters and keeps review modules out of them", () => {
+    expect(() =>
+      inspectWorkspaceBoundary({
+        clientSources: [
+          {
+            path: "src/client/lexical/assets.ts",
+            text: 'const response = fetch("/lexical/manifest.json");',
+          },
+        ],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      inspectWorkspaceBoundary({
+        clientSources: [
+          {
+            path: "src/client/lexical/assets.ts",
+            text: 'import { session } from "../workspace/model";',
+          },
+        ],
+      }),
+    ).toThrow("Network adapter imports review content");
+  });
   it.each([
     "fileName",
     "fileBytes",
@@ -229,4 +285,18 @@ describe("workspace deployment boundary", () => {
       }),
     ).not.toThrow();
   });
+
+  it.each(["src/client/lexical/assets.ts", "src/client/terminology/api.ts"])(
+    "continues checking %s after its allowed fetch",
+    (path) => {
+      for (const text of [
+        'const read = fetch; new WebSocket("wss://example.test");',
+        'globalThis["fetch"]("/fixed"); navigator["sendBeacon"]("/events", payload);',
+      ]) {
+        expect(() =>
+          inspectWorkspaceBoundary({ clientSources: [{ path, text }] }),
+        ).toThrow("Browser workspace uses network primitive");
+      }
+    },
+  );
 });

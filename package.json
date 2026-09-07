@@ -22,6 +22,7 @@
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
     "verify:foundation": "node --env-file-if-exists=.env scripts/verify-foundation.mjs",
     "verify:workspace:boundary": "node scripts/verify-workspace.mjs",
+    "verify:lexical": "node scripts/verify-workspace.mjs && vitest run src/client/lexical src/client/terminology scripts/verify-workspace.test.ts && playwright test tests/e2e/lexical.spec.ts",
     "verify:workspace": "node scripts/verify-workspace.mjs && vitest run src/client/workspace scripts/verify-workspace.test.ts && playwright test tests/e2e/workspace-shell.spec.ts tests/e2e/workspace.spec.ts tests/e2e/workspace-responsive.spec.ts tests/e2e/subtitle-import.spec.ts",
     "test:e2e": "playwright test"
   },
