@@ -9,9 +9,10 @@
     "pnpm": ">=10.0.0 <11.0.0"
   },
   "scripts": {
-    "dev": "next dev",
-    "dev:e2e": "next dev --hostname 127.0.0.1",
-    "build": "next build",
+    "dev": "node scripts/prepare-ocr.mjs && next dev",
+    "dev:e2e": "node scripts/prepare-ocr.mjs && next dev --hostname 127.0.0.1",
+    "build": "node scripts/prepare-ocr.mjs && next build && node scripts/build-pwa.mjs",
+    "test:pwa": "playwright test --config playwright.pwa.config.ts",
     "start": "next start",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
