@@ -101,6 +101,8 @@ No production VM, domain or SMTP provider is configured by this repository. Loca
 
 ## Release gate
 
+Use the [MVP release checklist](RELEASE-CHECKLIST.md) to record automated, production and physical iOS/Android validation separately.
+
 `corepack pnpm verify:workspace` parses the actual workspace, lexical and terminology production modules plus the server/API source trees. It rejects server imports of browser domains, forbidden review/subtitle-content fields at API boundaries, browser imports of server modules and unreviewed client helpers, and networking outside the named public-asset and metadata adapters. The adapters cannot import review session/engine modules. Unit tests verify strict metadata serialization and constant asset requests; browser tests inspect requests during import, analysis and explicit phrase saves. `corepack pnpm verify:lexical` runs the privacy check plus the lexical/terminology tests and real-dictionary browser flows, including a 384 MiB JavaScript-heap limit. This tests Chromium under a constrained heap; it is not a substitute for physical iOS/Android compatibility testing in the hardening phase.
 
 The Python source-normalizer and full shipped-asset integrity checks run separately with `python -m unittest discover -s scripts/lexical -p "test_*.py"` (Python 3.12+). Run them when changing provider data or normalization. No runtime Python dependency is needed; the Docker image serves the committed public packs and notices.

@@ -1,2 +1,5 @@
+# Keep source formatting stable across Windows and Linux; detect binaries automatically.
+* text=auto eol=lf
+
 # Drizzle records the exact SQL byte hash; keep Windows/Linux checkouts identical.
 src/server/db/migrations/*.sql text eol=lf
